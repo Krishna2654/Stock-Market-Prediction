@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #f8fafc;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    overflow-x: hidden;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Crisp Light Mode Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Light Mode Glassmorphic & Surface Panels */
+.glass-panel {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+}
+
+.glass-panel:hover {
+  border-color: #cbd5e1;
+}
+
+.glass-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.glass-card:hover {
+  border-color: #94a3b8;
+}
+
+/* Institutional Accents for Light Theme */
+.glow-bullish {
+  box-shadow: 0 0 15px rgba(22, 163, 74, 0.15);
+  border-color: #22c55e !important;
+}
+
+.glow-bearish {
+  box-shadow: 0 0 15px rgba(220, 38, 38, 0.15);
+  border-color: #ef4444 !important;
+}
+
+.glow-cyan {
+  box-shadow: 0 0 15px rgba(2, 132, 199, 0.15);
+  border-color: #0284c7 !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

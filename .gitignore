@@ -1,0 +1,17 @@
+.env
+*.env
+!.env.example
+
+venv/
+.venv/
+
+__pycache__/
+*.pyc
+*.pyo
+
+node_modules/
+frontend/dist/
+
+.vscode/
+.DS_Store
+Thumbs.db

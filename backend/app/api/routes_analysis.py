@@ -1,0 +1,233 @@
+import asyncio
+import time
+from fastapi import APIRouter, HTTPException, Query
+from typing import List, Dict, Any, Optional, Tuple
+import pandas as pd
+from app.models.schemas import (
+    MultiTimeframeSynthesis,
+    SingleTimeframeAnalysis,
+    Candle
+)
+from app.api.deps import get_current_provider, configured_instruments
+from app.multi_timeframe.synthesis import MultiTimeframeAnalyzer
+from app.alerts.engine import alert_engine
+from app.indicators.technical import TechnicalIndicatorEngine
+from app.market_structure.swings import SwingDetector
+from app.market_structure.bos_choch import BOSCHoCHDetector
+from app.market_structure.trendlines import TrendlineDetector
+from app.market_structure.precision_breakouts import PrecisionBreakoutDetector
+from app.market_structure.support_resistance import SupportResistanceDetector
+from app.market_structure.predictive_scenarios import PredictiveScenarioEngine
+from app.core.config import settings
+
+from app.alerts.high_confluence_engine import high_confluence_alert_engine
+from app.alerts.mw_breakout_engine import mw_breakout_engine
+from app.api.websocket import ws_manager
+
+router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+
+# In-memory performance caches with TTL
+_synthesis_cache: Dict[str, Tuple[float, MultiTimeframeSynthesis]] = {}
+_chart_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_chart_in_flight: Dict[str, asyncio.Task] = {}
+
+async def _analyze_instrument_cached(symbol: str, ticker: str, provider) -> MultiTimeframeSynthesis:
+    now = time.time()
+    if symbol in _synthesis_cache:
+        cached_time, cached_synth = _synthesis_cache[symbol]
+        if (now - cached_time) < 45.0:  # Fresh for 45s
+            return cached_synth
+
+    # Fetch fresh
+    synth = await _analyze_instrument(symbol, ticker, provider)
+    _synthesis_cache[symbol] = (now, synth)
+    return synth
+
+@router.get("/overview", response_model=List[MultiTimeframeSynthesis])
+async def get_all_instruments_overview():
+    provider = get_current_provider()
+    tasks = []
+    
+    for inst in configured_instruments:
+        if inst.is_active:
+            tasks.append(
+                _analyze_instrument_cached(inst.symbol, inst.ticker, provider)
+            )
+            
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    valid_syntheses: List[MultiTimeframeSynthesis] = []
+    
+    for res in results:
+        if isinstance(res, MultiTimeframeSynthesis):
+            valid_syntheses.append(res)
+            alert_engine.process_synthesis_for_alerts(res)
+            high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(res)
+            new_mw = mw_breakout_engine.process_synthesis(res)
+            for mwa in new_mw:
+                asyncio.create_task(ws_manager.broadcast({
+                    "type": "MW_BREAKOUT_TRIGGERED",
+                    "alert": mwa.model_dump()
+                }))
+        elif isinstance(res, Exception):
+            print(f"[Overview Error] {res}")
+            
+    return valid_syntheses
+
+async def _analyze_instrument(symbol: str, ticker: str, provider) -> MultiTimeframeSynthesis:
+    mtf_candles = await provider.get_multi_timeframe_data(symbol, ticker, ["4H", "1H", "15M", "5M"], limit=200)
+    
+    has_data = any(len(c) > 0 for c in mtf_candles.values())
+    is_stale = False
+    status_msg = f"Live Market Data from {provider.provider_name}" if has_data else f"No data received from {provider.provider_name}"
+    data_status = getattr(provider, "get_connection_status", lambda t: "LIVE")(ticker)
+    
+    synthesis = MultiTimeframeAnalyzer.synthesize(
+        symbol=symbol,
+        ticker=ticker,
+        provider_name=provider.provider_name,
+        mtf_candles=mtf_candles,
+        is_stale=is_stale,
+        status_message=status_msg,
+        data_status=data_status
+    )
+    return synthesis
+
+@router.get("/detail/{symbol:path}", response_model=MultiTimeframeSynthesis)
+async def get_instrument_detail(symbol: str):
+    provider = get_current_provider()
+    target = next((i for i in configured_instruments if i.symbol.upper() == symbol.upper()), None)
+    ticker = target.ticker if target else symbol
+    
+    synthesis = await _analyze_instrument_cached(symbol, ticker, provider)
+    alert_engine.process_synthesis_for_alerts(synthesis)
+    high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synthesis)
+    new_mw = mw_breakout_engine.process_synthesis(synthesis)
+    for mwa in new_mw:
+        asyncio.create_task(ws_manager.broadcast({
+            "type": "MW_BREAKOUT_TRIGGERED",
+            "alert": mwa.model_dump()
+        }))
+    return synthesis
+
+@router.get("/chart/{symbol:path}")
+async def get_chart_data(
+    symbol: str,
+    timeframe: str = Query("15M", pattern="^(4H|1H|15M|5M)$"),
+    limit: int = Query(250, ge=30, le=500)
+):
+    cache_key = f"{symbol}_{timeframe}_{limit}"
+    now = time.time()
+    if cache_key in _chart_cache:
+        c_time, c_data = _chart_cache[cache_key]
+        if (now - c_time) < 30.0:  # Fresh for 30s -> Instant return!
+            return c_data
+
+    if cache_key in _chart_in_flight:
+        try:
+            return await _chart_in_flight[cache_key]
+        except Exception:
+            pass
+
+    async def _compute_chart():
+        try:
+            provider = get_current_provider()
+            target = next((i for i in configured_instruments if i.symbol.upper() == symbol.upper()), None)
+            ticker = target.ticker if target else symbol
+
+            candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit)
+            if not candles:
+                raise HTTPException(status_code=404, detail=f"No candle data available for {symbol} on {timeframe}")
+
+            df_indicators, _ = TechnicalIndicatorEngine.compute_all_indicators(candles)
+            swings, protected_swing = SwingDetector.detect_swings(candles, swing_length=5, confirmation_candles=2)
+            breaks = BOSCHoCHDetector.detect_structure_breaks(
+                candles=candles,
+                swings=swings,
+                symbol=symbol,
+                timeframe=timeframe,
+                df_indicators=df_indicators
+            )
+            trendlines = TrendlineDetector.fit_trendlines(candles, swings, max_lines_per_direction=settings.MAX_TRENDLINES_PER_DIRECTION)
+            atr_val = float(df_indicators["atr_14"].iloc[-1]) if "atr_14" in df_indicators and not pd.isna(df_indicators["atr_14"].iloc[-1]) else (candles[-1].close * 0.005)
+            
+            # Standard trendline breaks
+            tl_breaks = TrendlineDetector.detect_trendline_breaks(candles, trendlines, symbol, timeframe, atr_val=atr_val)
+            for tb in tl_breaks:
+                breaks.append(tb)
+
+            # Precision Breakouts (Notification 1 & 2)
+            tl_ema_vol_breaks = PrecisionBreakoutDetector.detect_trendline_ema_volume_breakouts(
+                candles=candles, trendlines=trendlines, df_indicators=df_indicators,
+                symbol=symbol, timeframe=timeframe, atr_val=atr_val,
+                good_volume_threshold=settings.GOOD_VOLUME_THRESHOLD
+            )
+            for pb in tl_ema_vol_breaks:
+                breaks.append(pb)
+
+            sr_summary = SupportResistanceDetector.detect_levels(candles, swings, timeframe)
+            key_sups = [lvl.price for lvl in sr_summary.all_levels if lvl.level_type == "SUPPORT"]
+            key_res = [lvl.price for lvl in sr_summary.all_levels if lvl.level_type == "RESISTANCE"]
+
+            wm_breaks, confirmed_wm_patterns, active_wm_pattern, debug_wm_candidates = PrecisionBreakoutDetector.detect_wm_patterns(
+                candles=candles, swings=swings, trendlines=trendlines, df_indicators=df_indicators,
+                symbol=symbol, timeframe=timeframe, atr_val=atr_val,
+                price_tolerance_atr=settings.W_M_SWING_TOLERANCE_ATR,
+                min_depth_atr=settings.MIN_PATTERN_DEPTH_ATR,
+                min_bar_spacing=settings.MIN_W_M_SWING_SEPARATION,
+                key_supports=key_sups,
+                key_resistances=key_res
+            )
+            for wb in wm_breaks:
+                breaks.append(wb)
+
+            predictive_scenarios = PredictiveScenarioEngine.compute_scenarios(
+                candles=candles,
+                swings=swings,
+                sr_summary=sr_summary,
+                recent_events=breaks,
+                timeframe=timeframe,
+                symbol=symbol
+            )
+
+            chart_candles = []
+            for i, c in enumerate(candles):
+                row = df_indicators.iloc[i] if i < len(df_indicators) else None
+                item = {
+                    "time": c.timestamp,
+                    "open": c.open,
+                    "high": c.high,
+                    "low": c.low,
+                    "close": c.close,
+                    "volume": c.volume,
+                    "rsi_14": float(row["rsi_14"]) if row is not None and "rsi_14" in row and not pd.isna(row["rsi_14"]) else None,
+                    "ema_20": float(row["ema_20"]) if row is not None and "ema_20" in row and not pd.isna(row["ema_20"]) else None,
+                    "ema_50": float(row["ema_50"]) if row is not None and "ema_50" in row and not pd.isna(row["ema_50"]) else None,
+                    "ema_200": float(row["ema_200"]) if row is not None and "ema_200" in row and not pd.isna(row["ema_200"]) else None,
+                    "atr_14": float(row["atr_14"]) if row is not None and "atr_14" in row and not pd.isna(row["atr_14"]) else None
+                }
+                chart_candles.append(item)
+
+            resp_data = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "candles": chart_candles,
+                "swings": [s.model_dump() for s in swings],
+                "protected_swing": protected_swing.model_dump() if protected_swing else None,
+                "structure_breaks": [b.model_dump() for b in breaks],
+                "breaks": [b.model_dump() for b in breaks],
+                "trendlines": trendlines,
+                "support_resistance": sr_summary.model_dump(),
+                "predictive_scenarios": predictive_scenarios,
+                "wm_patterns": [p.model_dump() for p in confirmed_wm_patterns],
+                "active_wm_pattern": active_wm_pattern.model_dump() if active_wm_pattern else None,
+                "wm_debug_candidates": [c.model_dump() for c in debug_wm_candidates]
+            }
+
+            _chart_cache[cache_key] = (time.time(), resp_data)
+            return resp_data
+        finally:
+            _chart_in_flight.pop(cache_key, None)
+
+    task = asyncio.create_task(_compute_chart())
+    _chart_in_flight[cache_key] = task
+    return await task
