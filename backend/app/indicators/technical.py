@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 from app.models.schemas import Candle, TechnicalIndicators
