@@ -112,6 +112,19 @@ app.include_router(backtest_router)
 app.include_router(paper_router)
 app.include_router(ws_router)
 
+# ---------------------------------------------------------
+# Production React Frontend Detection
+# ---------------------------------------------------------
+FRONTEND_DIST_CANDIDATES = [
+    Path(__file__).resolve().parents[2] / "frontend" / "dist",
+    Path(__file__).resolve().parents[1] / "dist",
+    Path.cwd().parent / "frontend" / "dist",
+    Path.cwd() / "frontend" / "dist",
+    Path("/app/frontend/dist")
+]
+
+FRONTEND_DIST = next((p for p in FRONTEND_DIST_CANDIDATES if p.exists() and (p / "index.html").exists()), None)
+
 @app.get("/health")
 def health_check():
     return {
@@ -121,24 +134,13 @@ def health_check():
         "active_instruments": len(configured_instruments)
     }
 
-@app.get("/", response_class=HTMLResponse)
-def root_dashboard(request: Request):
-    # Check if request prefers JSON (e.g. curl or API client)
-    accept = request.headers.get("accept", "")
-    if "application/json" in accept and "text/html" not in accept:
-        return JSONResponse({
-            "status": "online",
-            "app": settings.APP_NAME,
-            "version": settings.APP_VERSION,
-            "docs": "/docs",
-            "health": "/health",
-            "active_instruments": len(configured_instruments)
-        })
-
+def generate_root_dashboard_html(request: Request) -> str:
     instruments_html = "".join([
         f'<span style="display:inline-block; margin:4px; padding:6px 12px; background:#f1f5f9; border-radius:8px; font-weight:600; font-size:13px; color:#1e293b; border:1px solid #e2e8f0;">● {inst.symbol} <span style="color:#64748b; font-size:11px;">({inst.ticker})</span></span>'
         for inst in configured_instruments
     ])
+
+    frontend_url = "/" if (FRONTEND_DIST and (FRONTEND_DIST / "index.html").exists()) else "http://localhost:5173"
 
     html_content = f"""
     <!DOCTYPE html>
@@ -285,8 +287,8 @@ def root_dashboard(request: Request):
                 <div class="section">
                     <h2>Quick Navigation</h2>
                     <div class="btn-group">
-                        <a href="/">
-                            Open Frontend Dashboard
+                        <a href="{frontend_url}" class="btn btn-success">
+                            🖥️ Open Frontend Dashboard
                         </a>
                         <a href="/docs" class="btn btn-primary">
                             📖 Interactive Swagger API Docs
@@ -364,22 +366,34 @@ def root_dashboard(request: Request):
     </body>
     </html>
     """
-    return HTMLResponse(content=html_content)
+    return html_content
+
+@app.get("/api-dashboard", response_class=HTMLResponse)
+def api_dashboard(request: Request):
+    return HTMLResponse(content=generate_root_dashboard_html(request))
+
+@app.get("/")
+def root_endpoint(request: Request):
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept and "text/html" not in accept:
+        return JSONResponse({
+            "status": "online",
+            "app": settings.APP_NAME,
+            "version": settings.APP_VERSION,
+            "docs": "/docs",
+            "health": "/health",
+            "active_instruments": len(configured_instruments)
+        })
+
+    if FRONTEND_DIST and (FRONTEND_DIST / "index.html").exists():
+        return FileResponse(str(FRONTEND_DIST / "index.html"))
+
+    return HTMLResponse(content=generate_root_dashboard_html(request))
 
 # ---------------------------------------------------------
 # Production React Frontend (Single-Service Deployment for Render)
 # ---------------------------------------------------------
-FRONTEND_DIST_CANDIDATES = [
-    Path(__file__).resolve().parents[2] / "frontend" / "dist",
-    Path(__file__).resolve().parents[1] / "dist",
-    Path.cwd().parent / "frontend" / "dist",
-    Path.cwd() / "frontend" / "dist",
-    Path("/app/frontend/dist")
-]
-
-FRONTEND_DIST = next((p for p in FRONTEND_DIST_CANDIDATES if p.exists()), None)
-
-if FRONTEND_DIST:
+if FRONTEND_DIST and (FRONTEND_DIST / "index.html").exists():
     assets_dir = FRONTEND_DIST / "assets"
     if assets_dir.exists():
         app.mount(
@@ -391,7 +405,7 @@ if FRONTEND_DIST:
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
         # Exclude API, WebSocket, Docs, and Health routes
-        if full_path.startswith("api/") or full_path in ["api", "ws", "docs", "redoc", "openapi.json", "health"]:
+        if full_path.startswith("api/") or full_path in ["api", "ws", "docs", "redoc", "openapi.json", "health", "api-dashboard"]:
             return JSONResponse(
                 {"detail": "Not found"},
                 status_code=404
