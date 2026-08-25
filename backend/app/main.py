@@ -1,7 +1,9 @@
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes_instruments import router as instruments_router
@@ -109,6 +111,45 @@ app.include_router(alerts_router)
 app.include_router(backtest_router)
 app.include_router(paper_router)
 app.include_router(ws_router)
+# ---------------------------------------------------------
+# Production React Frontend
+# ---------------------------------------------------------
+
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+if FRONTEND_DIST.exists():
+    assets_dir = FRONTEND_DIST / "assets"
+
+    if assets_dir.exists():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(assets_dir)),
+            name="assets"
+        )
+
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        # Let API routes handle themselves.
+        if full_path.startswith("api/") or full_path == "ws":
+            return JSONResponse(
+                {"detail": "Not found"},
+                status_code=404
+            )
+
+        requested_file = FRONTEND_DIST / full_path
+
+        if requested_file.is_file():
+            return FileResponse(str(requested_file))
+
+        index_file = FRONTEND_DIST / "index.html"
+
+        if index_file.exists():
+            return FileResponse(str(index_file))
+
+        return JSONResponse(
+            {"detail": "Frontend build not found"},
+            status_code=404
+        )
 
 @app.get("/health")
 def health_check():
@@ -283,8 +324,8 @@ def root_dashboard(request: Request):
                 <div class="section">
                     <h2>Quick Navigation</h2>
                     <div class="btn-group">
-                        <a href="http://localhost:5173" class="btn btn-success" target="_blank">
-                            🖥️ Open Frontend Dashboard (Port 5173)
+                        <a href="/">
+                            Open Frontend Dashboard
                         </a>
                         <a href="/docs" class="btn btn-primary">
                             📖 Interactive Swagger API Docs
