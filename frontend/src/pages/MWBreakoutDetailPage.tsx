@@ -17,7 +17,8 @@ import {
   Layers,
   Sparkles,
   BarChart2,
-  RefreshCw
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 
 // Module-level cache for instant M/W Breakout Details opening
@@ -96,7 +97,7 @@ export const MWBreakoutDetailPage: React.FC = () => {
 
     // Filter to relevant candles around pattern
     const patternTime = new Date(alert.s1_timestamp).getTime();
-    let startIndex = candles.findIndex((c) => new Date(c.time).getTime() >= patternTime - 20 * 60 * 1000);
+    let startIndex = candles.findIndex((c) => new Date(c.timestamp).getTime() >= patternTime - 20 * 60 * 1000);
     if (startIndex === -1 || startIndex > candles.length - 20) {
       startIndex = Math.max(0, candles.length - 45);
     } else {
@@ -177,9 +178,9 @@ export const MWBreakoutDetailPage: React.FC = () => {
     });
 
     // 1. Draw Pattern Connected Guideline: S1 -> Neckline -> S2
-    const s1LocalIdx = visibleCandles.findIndex((c) => c.time === alert.s1_timestamp);
-    const neckLocalIdx = visibleCandles.findIndex((c) => c.time === alert.neckline_timestamp);
-    const s2LocalIdx = visibleCandles.findIndex((c) => c.time === alert.s2_timestamp);
+    const s1LocalIdx = visibleCandles.findIndex((c) => c.timestamp === alert.s1_timestamp);
+    const neckLocalIdx = visibleCandles.findIndex((c) => c.timestamp === alert.neckline_timestamp);
+    const s2LocalIdx = visibleCandles.findIndex((c) => c.timestamp === alert.s2_timestamp);
 
     const isW = alert.pattern_type === 'W';
     const lineColor = isW ? '#8b5cf6' : '#ec4899';
@@ -276,7 +277,7 @@ export const MWBreakoutDetailPage: React.FC = () => {
     ctx.fillText(`INVAL: ${alert.invalidation_level.toFixed(1)}`, width - paddingRight + 8, yInval + 3);
 
     // 5. Draw Breakout Candle Marker Badge
-    const breakLocalIdx = visibleCandles.findIndex((c) => c.time === alert.breakout_candle_timestamp);
+    const breakLocalIdx = visibleCandles.findIndex((c) => c.timestamp === alert.breakout_candle_timestamp);
     if (breakLocalIdx !== -1) {
       const bx = getX(breakLocalIdx);
       const bCandle = visibleCandles[breakLocalIdx];

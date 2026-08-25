@@ -111,45 +111,6 @@ app.include_router(alerts_router)
 app.include_router(backtest_router)
 app.include_router(paper_router)
 app.include_router(ws_router)
-# ---------------------------------------------------------
-# Production React Frontend
-# ---------------------------------------------------------
-
-FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-
-if FRONTEND_DIST.exists():
-    assets_dir = FRONTEND_DIST / "assets"
-
-    if assets_dir.exists():
-        app.mount(
-            "/assets",
-            StaticFiles(directory=str(assets_dir)),
-            name="assets"
-        )
-
-    @app.get("/{full_path:path}")
-    async def serve_react_app(full_path: str):
-        # Let API routes handle themselves.
-        if full_path.startswith("api/") or full_path == "ws":
-            return JSONResponse(
-                {"detail": "Not found"},
-                status_code=404
-            )
-
-        requested_file = FRONTEND_DIST / full_path
-
-        if requested_file.is_file():
-            return FileResponse(str(requested_file))
-
-        index_file = FRONTEND_DIST / "index.html"
-
-        if index_file.exists():
-            return FileResponse(str(index_file))
-
-        return JSONResponse(
-            {"detail": "Frontend build not found"},
-            status_code=404
-        )
 
 @app.get("/health")
 def health_check():
@@ -404,6 +365,50 @@ def root_dashboard(request: Request):
     </html>
     """
     return HTMLResponse(content=html_content)
+
+# ---------------------------------------------------------
+# Production React Frontend (Single-Service Deployment for Render)
+# ---------------------------------------------------------
+FRONTEND_DIST_CANDIDATES = [
+    Path(__file__).resolve().parents[2] / "frontend" / "dist",
+    Path(__file__).resolve().parents[1] / "dist",
+    Path.cwd().parent / "frontend" / "dist",
+    Path.cwd() / "frontend" / "dist",
+    Path("/app/frontend/dist")
+]
+
+FRONTEND_DIST = next((p for p in FRONTEND_DIST_CANDIDATES if p.exists()), None)
+
+if FRONTEND_DIST:
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.exists():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(assets_dir)),
+            name="assets"
+        )
+
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        # Exclude API, WebSocket, Docs, and Health routes
+        if full_path.startswith("api/") or full_path in ["api", "ws", "docs", "redoc", "openapi.json", "health"]:
+            return JSONResponse(
+                {"detail": "Not found"},
+                status_code=404
+            )
+
+        requested_file = FRONTEND_DIST / full_path
+        if requested_file.is_file():
+            return FileResponse(str(requested_file))
+
+        index_file = FRONTEND_DIST / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+
+        return JSONResponse(
+            {"detail": "Frontend build not found"},
+            status_code=404
+        )
 
 if __name__ == "__main__":
     import uvicorn

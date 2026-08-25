@@ -324,6 +324,7 @@ export interface HighConfluenceAlert {
   pattern_quality_score?: number | null;
   target_analysis?: PatternTargetAnalysis | null;
   next_level?: number | null;
+  invalidation_level?: number | null;
   event_created_at: string;
   message: string;
 }
