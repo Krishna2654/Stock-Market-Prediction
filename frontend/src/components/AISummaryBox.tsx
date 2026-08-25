@@ -25,21 +25,21 @@ export const AISummaryBox: React.FC<AISummaryBoxProps> = ({
   };
 
   return (
-    <div className="glass-panel rounded-2xl p-5 shadow-xs flex flex-col gap-4 bg-white border border-slate-200 relative overflow-hidden">
+    <div className="glass-panel rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4 bg-white border border-slate-200 relative overflow-hidden w-full min-w-0">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-200">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 shrink-0">
             <Sparkles className="h-4 w-4" />
           </div>
-          <div>
-            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+          <div className="min-w-0">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2 flex-wrap">
               <span>AI Share Market Prediction Narrative</span>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
                 {summary?.model_used || 'Gemini AI Assistant'}
               </span>
             </h3>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 truncate sm:whitespace-normal">
               Anti-hallucinatory narrative derived strictly from quantitative structure data
             </p>
           </div>

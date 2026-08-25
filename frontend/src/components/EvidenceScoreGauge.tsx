@@ -36,24 +36,24 @@ export const EvidenceScoreGauge: React.FC<EvidenceScoreGaugeProps> = ({ scoreDat
   ];
 
   return (
-    <div className="glass-panel rounded-2xl p-5 shadow-xs flex flex-col justify-between gap-4 bg-white border border-slate-200">
+    <div className="glass-panel rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between gap-4 bg-white border border-slate-200 w-full min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-blue-600" />
-          <h3 className="font-bold text-sm text-slate-900">Evidence Alignment Score</h3>
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-200 pb-3 gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <ShieldCheck className="h-5 w-5 text-blue-600 shrink-0" />
+          <h3 className="font-bold text-sm text-slate-900 truncate">Evidence Alignment Score</h3>
         </div>
-        <span className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${badgeStyle}`}>
+        <span className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${badgeStyle} shrink-0`}>
           {scoreData.category}
         </span>
       </div>
 
       {/* Main Score Display */}
-      <div className="flex items-center gap-6">
+      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 min-w-0">
         {/* Score Number Gauge */}
-        <div className="relative flex items-center justify-center h-24 w-24 shrink-0 rounded-2xl bg-slate-50 border border-slate-200 shadow-inner">
+        <div className="relative flex items-center justify-center h-20 w-20 sm:h-24 sm:w-24 shrink-0 rounded-2xl bg-slate-50 border border-slate-200 shadow-inner">
           <div className="text-center">
-            <span className="text-3xl font-extrabold font-mono tracking-tight" style={{ color: circleColor }}>
+            <span className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight" style={{ color: circleColor }}>
               {score}
             </span>
             <span className="text-[10px] block text-slate-500 font-mono font-bold">/ 100 PTS</span>

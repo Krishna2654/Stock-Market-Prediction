@@ -54,19 +54,19 @@ export const TrendlinePanel: React.FC<TrendlinePanelProps> = ({
   };
 
   return (
-    <div className="glass-panel rounded-2xl p-5 shadow-xs flex flex-col justify-between gap-4 bg-white border border-slate-200">
+    <div className="glass-panel rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between gap-4 bg-white border border-slate-200 w-full min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-        <div className="flex items-center gap-2">
-          <Layers className="h-5 w-5 text-blue-600" />
-          <div>
-            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-200 pb-3 gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Layers className="h-5 w-5 text-blue-600 shrink-0" />
+          <div className="min-w-0">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-1.5 flex-wrap">
               <span>Structural Trendlines Matrix</span>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 truncate">
                 {timeframe} Timeframe ({trendlines.length} lines)
               </span>
             </h3>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 truncate">
               Pivot tangent non-penetrating multi-line geometry (Primary, Secondary, Minor)
             </p>
           </div>
@@ -74,7 +74,7 @@ export const TrendlinePanel: React.FC<TrendlinePanelProps> = ({
       </div>
 
       {/* Grid of Support & Resistance Trendlines */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs min-w-0">
         {/* Ascending Support Lines */}
         <div className="flex flex-col gap-2.5 bg-emerald-50/40 p-3.5 rounded-xl border border-emerald-200">
           <div className="flex items-center justify-between">

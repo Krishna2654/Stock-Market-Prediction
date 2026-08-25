@@ -137,13 +137,13 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="w-full max-w-7xl mx-auto space-y-4 sm:space-y-6 min-w-0">
       {/* Navigation Top Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3 sm:pb-4 min-w-0">
         <div>
           <button
             onClick={() => navigate(-1)}
-            className="inline-flex items-center gap-2 min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-all cursor-pointer"
+            className="inline-flex items-center gap-1.5 sm:gap-2 min-h-[38px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-all cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>Back to Market Analysis</span>
@@ -151,17 +151,17 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
         </div>
 
         {/* Action Buttons: Sound, Refresh, Developer Test */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
           <button
             onClick={onToggleSound}
-            className={`min-h-[44px] px-3.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer ${
+            className={`min-h-[36px] sm:min-h-[44px] px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs cursor-pointer ${
               soundEnabled
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                 : 'bg-slate-50 text-slate-500 border-slate-200'
             }`}
             title="Toggle M/W Breakout Audio Alert"
           >
-            {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {soundEnabled ? <Volume2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <VolumeX className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
             <span>Sound: {soundEnabled ? 'ON' : 'OFF'}</span>
           </button>
 
@@ -171,10 +171,10 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               loadStats();
             }}
             disabled={isLoading}
-            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+            className="min-h-[36px] sm:min-h-[44px] px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
             title="Refresh M/W Signals"
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin text-blue-600' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isLoading ? 'animate-spin text-blue-600' : ''}`} />
             <span>Refresh</span>
           </button>
 
@@ -182,7 +182,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
           <button
             onClick={() => handleTestTrigger('W')}
             disabled={isLoading}
-            className="min-h-[44px] px-3 py-2 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold transition-all cursor-pointer"
+            className="min-h-[36px] sm:min-h-[44px] px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer"
             title="Simulate Confirmed W Breakout Signal"
           >
             + Test W Signal
@@ -190,7 +190,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
           <button
             onClick={() => handleTestTrigger('M')}
             disabled={isLoading}
-            className="min-h-[44px] px-3 py-2 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 text-[11px] font-bold transition-all cursor-pointer"
+            className="min-h-[36px] sm:min-h-[44px] px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer"
             title="Simulate Confirmed M Breakdown Signal"
           >
             + Test M Signal

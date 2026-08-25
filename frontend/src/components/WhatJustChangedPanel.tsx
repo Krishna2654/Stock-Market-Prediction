@@ -41,31 +41,31 @@ export const WhatJustChangedPanel: React.FC<WhatJustChangedPanelProps> = ({
   const interpretation = whatJustChanged?.structural_interpretation || latestEvent?.notes || 'Structural state updated.';
 
   return (
-    <div className="glass-panel rounded-2xl p-4 bg-white border border-slate-200 shadow-xs flex flex-col gap-3">
+    <div className="glass-panel rounded-2xl p-3.5 sm:p-4 bg-white border border-slate-200 shadow-xs flex flex-col gap-3 w-full min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 shrink-0">
             <Activity className="h-4 w-4 animate-pulse" />
           </div>
-          <div>
-            <h3 className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+          <div className="min-w-0">
+            <h3 className="font-bold text-xs text-slate-900 flex items-center gap-1.5 flex-wrap">
               <span>What Just Changed?</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 truncate">
                 {currentSymbol} • {timeframe}
               </span>
             </h3>
           </div>
         </div>
 
-        <span className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold ${badgeStyle} flex items-center gap-1`}>
+        <span className={`px-2 py-0.5 rounded-lg border text-[10px] sm:text-[11px] font-bold ${badgeStyle} flex items-center gap-1 shrink-0`}>
           <Zap className="h-3 w-3" />
           {eventType.replace(/_/g, ' ')}
         </span>
       </div>
 
       {/* Delta Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs min-w-0">
         {/* State Transition */}
         <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between">
           <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">

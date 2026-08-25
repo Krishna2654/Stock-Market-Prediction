@@ -20,20 +20,20 @@ export const SupportResistanceBox: React.FC<SupportResistanceBoxProps> = ({
   };
 
   return (
-    <div className="glass-panel rounded-2xl p-5 shadow-xs flex flex-col justify-between gap-4 bg-white border border-slate-200">
+    <div className="glass-panel rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between gap-4 bg-white border border-slate-200 w-full min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-        <div className="flex items-center gap-2">
-          <Anchor className="h-5 w-5 text-blue-600" />
-          <h3 className="font-bold text-sm text-slate-900">Key Support & Resistance Zones</h3>
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-200 pb-3 gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Anchor className="h-5 w-5 text-blue-600 shrink-0" />
+          <h3 className="font-bold text-sm text-slate-900 truncate">Key Support & Resistance Zones</h3>
         </div>
-        <span className="text-[11px] font-mono text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+        <span className="text-[11px] font-mono text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200 shrink-0">
           CMP: {currentPrice.toLocaleString()}
         </span>
       </div>
 
       {/* Levels Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs min-w-0">
         {/* Resistances */}
         <div className="bg-rose-50/60 rounded-xl p-3.5 border border-rose-200 flex flex-col gap-2">
           <span className="font-bold text-[11px] text-rose-700 uppercase tracking-wider flex items-center gap-1">

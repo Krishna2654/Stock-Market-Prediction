@@ -79,46 +79,46 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-4 sm:space-y-6 pb-12 w-full max-w-full min-w-0">
       {/* Executive Header Banner */}
-      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-xs relative overflow-hidden">
+      <div className="bg-white rounded-3xl p-4 sm:p-8 border border-slate-200 shadow-xs relative overflow-hidden w-full min-w-0">
         <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold mb-3">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-6 min-w-0">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold mb-2 sm:mb-3">
               <Sparkles className="h-3.5 w-3.5 text-blue-600" />
               <span>Multi-Timeframe Market Structure Intelligence</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+            <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">
               Market Selection Dashboard
             </h1>
-            <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+            <p className="text-xs sm:text-sm text-slate-600 mt-1 max-w-2xl">
               Select an instrument below to launch its focused, real-time quantitative analysis page with dynamic trendlines, confirmed candle-close breakouts, and scenario forecasting.
             </p>
           </div>
 
           {/* Quick Metrics Bar */}
-          <div className="flex items-center gap-3 self-start md:self-auto flex-wrap">
-            <div className="bg-slate-50 px-4 py-2.5 rounded-2xl border border-slate-200 text-center">
-              <span className="text-[10px] text-slate-500 font-bold uppercase block">Tracked Markets</span>
-              <span className="text-xl font-black text-slate-900 font-mono">{stats.total}</span>
+          <div className="flex items-center gap-2 sm:gap-3 self-start md:self-auto flex-wrap min-w-0">
+            <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl border border-slate-200 text-center">
+              <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase block">Tracked</span>
+              <span className="text-lg sm:text-xl font-black text-slate-900 font-mono">{stats.total}</span>
             </div>
-            <div className="bg-emerald-50 px-4 py-2.5 rounded-2xl border border-emerald-200 text-center">
-              <span className="text-[10px] text-emerald-700 font-bold uppercase block">Bullish Bias</span>
-              <span className="text-xl font-black text-emerald-700 font-mono">{stats.bullishCount}</span>
+            <div className="bg-emerald-50 px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl border border-emerald-200 text-center">
+              <span className="text-[9px] sm:text-[10px] text-emerald-700 font-bold uppercase block">Bullish</span>
+              <span className="text-lg sm:text-xl font-black text-emerald-700 font-mono">{stats.bullishCount}</span>
             </div>
-            <div className="bg-rose-50 px-4 py-2.5 rounded-2xl border border-rose-200 text-center">
-              <span className="text-[10px] text-rose-700 font-bold uppercase block">Bearish Bias</span>
-              <span className="text-xl font-black text-rose-700 font-mono">{stats.bearishCount}</span>
+            <div className="bg-rose-50 px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl border border-rose-200 text-center">
+              <span className="text-[9px] sm:text-[10px] text-rose-700 font-bold uppercase block">Bearish</span>
+              <span className="text-lg sm:text-xl font-black text-rose-700 font-mono">{stats.bearishCount}</span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Search & Filter Controls */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-xs">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-xs w-full min-w-0">
         {/* Search Bar */}
-        <div className="relative w-full sm:w-80">
+        <div className="relative w-full sm:w-80 min-w-0">
           <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -130,7 +130,7 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
         </div>
 
         {/* Asset Type Filter Tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto self-stretch sm:self-auto py-1">
+        <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto self-stretch sm:self-auto py-1 no-scrollbar min-w-0">
           {[
             { id: 'ALL', label: 'All Markets' },
             { id: 'INDEX', label: 'Indices' },
@@ -140,7 +140,7 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
             <button
               key={tab.id}
               onClick={() => setAssetFilter(tab.id as any)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
                 assetFilter === tab.id
                   ? 'bg-blue-600 text-white shadow-2xs'
                   : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/60'
@@ -152,7 +152,7 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
         </div>
 
         {/* Bias Filter Pills */}
-        <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto">
+        <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto no-scrollbar min-w-0">
           {[
             { id: 'ALL', label: 'All Biases' },
             { id: 'BULLISH', label: '🟢 Bullish' },
@@ -161,7 +161,7 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
             <button
               key={tab.id}
               onClick={() => setBiasFilter(tab.id as any)}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+              className={`px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
                 biasFilter === tab.id
                   ? 'bg-slate-900 text-white shadow-2xs'
                   : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200/60'

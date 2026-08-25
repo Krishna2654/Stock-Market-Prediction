@@ -24,36 +24,36 @@ export const PredictiveScenarioBox: React.FC<PredictiveScenarioBoxProps> = ({
   const bearPath = scenarios.bearish_path;
 
   return (
-    <div className="w-full glass-panel rounded-2xl p-5 shadow-xs flex flex-col gap-4 bg-white border border-slate-200">
+    <div className="w-full glass-panel rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4 bg-white border border-slate-200 min-w-0">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-200">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 shrink-0">
             <Target className="h-5 w-5" />
           </div>
-          <div>
-            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
-              Predictive Target Roadmaps & Order Blocks
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+          <div className="min-w-0">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-1.5 flex-wrap">
+              <span>Predictive Target Roadmaps & Order Blocks</span>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
                 CHoCH & S/R Driven
               </span>
             </h3>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 truncate sm:whitespace-normal">
               Structural If-Then Breakout Triggers, Demand/Supply Order Blocks, and Multi-Target Projections
             </p>
           </div>
         </div>
 
         {impulse.direction && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+          <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs flex-wrap">
             <span className="text-slate-500">Impulse Wave:</span>
             {impulse.direction === 'UP' ? (
               <span className="font-bold text-emerald-700 flex items-center gap-1">
-                <TrendingUp className="h-3.5 w-3.5" /> Recent Low ➔ High ({currSym}{impulse.from_price?.toLocaleString()} ➔ {currSym}{impulse.to_price?.toLocaleString()})
+                <TrendingUp className="h-3.5 w-3.5" /> Low ➔ High ({currSym}{impulse.from_price?.toLocaleString()} ➔ {currSym}{impulse.to_price?.toLocaleString()})
               </span>
             ) : (
               <span className="font-bold text-rose-700 flex items-center gap-1">
-                <TrendingDown className="h-3.5 w-3.5" /> Recent High ➔ Low ({currSym}{impulse.from_price?.toLocaleString()} ➔ {currSym}{impulse.to_price?.toLocaleString()})
+                <TrendingDown className="h-3.5 w-3.5" /> High ➔ Low ({currSym}{impulse.from_price?.toLocaleString()} ➔ {currSym}{impulse.to_price?.toLocaleString()})
               </span>
             )}
           </div>
@@ -61,7 +61,7 @@ export const PredictiveScenarioBox: React.FC<PredictiveScenarioBoxProps> = ({
       </div>
 
       {/* Buyer (Demand) and Seller (Supply) Zones */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 min-w-0">
         {buyerZone && (
           <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 flex items-start gap-3">
             <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700 mt-0.5">

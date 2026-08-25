@@ -89,11 +89,13 @@ export const MWBreakoutDetailPage: React.FC = () => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
-    // Padding
-    const paddingLeft = 20;
-    const paddingRight = 95;
-    const paddingTop = 25;
-    const chartHeight = height - 50;
+    // Responsive Padding
+    const isMobile = width < 600;
+    const isSmallMobile = width < 420;
+    const paddingLeft = isSmallMobile ? 6 : isMobile ? 10 : 20;
+    const paddingRight = isSmallMobile ? 54 : isMobile ? 62 : 95;
+    const paddingTop = isMobile ? 18 : 25;
+    const chartHeight = height - (isMobile ? 38 : 50);
 
     // Filter to relevant candles around pattern
     const patternTime = new Date(alert.s1_timestamp).getTime();
@@ -233,12 +235,16 @@ export const MWBreakoutDetailPage: React.FC = () => {
     ctx.setLineDash([]);
 
     // Neckline Badge
+    const badgeW = isMobile ? 54 : 86;
+    const badgeH = isMobile ? 13 : 16;
+    const badgeFont = isMobile ? 'bold 7.5px sans-serif' : 'bold 9px sans-serif';
+
     ctx.fillStyle = '#9333ea';
-    ctx.fillRect(width - paddingRight + 4, yNeckline - 8, 86, 16);
+    ctx.fillRect(width - paddingRight + 2, yNeckline - (isMobile ? 6.5 : 8), badgeW, badgeH);
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 9px sans-serif';
+    ctx.font = badgeFont;
     ctx.textAlign = 'left';
-    ctx.fillText(`NECK: ${alert.neckline_price.toFixed(1)}`, width - paddingRight + 8, yNeckline + 3);
+    ctx.fillText(isMobile ? `N:${alert.neckline_price.toFixed(0)}` : `NECK: ${alert.neckline_price.toFixed(1)}`, width - paddingRight + 4, yNeckline + (isMobile ? 2.5 : 3));
 
     // 3. Draw Clean Horizontal Target 1
     const yTarget = getY(alert.measured_target);
@@ -253,10 +259,10 @@ export const MWBreakoutDetailPage: React.FC = () => {
 
     // Target 1 Badge
     ctx.fillStyle = '#059669';
-    ctx.fillRect(width - paddingRight + 4, yTarget - 8, 86, 16);
+    ctx.fillRect(width - paddingRight + 2, yTarget - (isMobile ? 6.5 : 8), badgeW, badgeH);
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 9px sans-serif';
-    ctx.fillText(`TARGET: ${alert.measured_target.toFixed(1)}`, width - paddingRight + 8, yTarget + 3);
+    ctx.font = badgeFont;
+    ctx.fillText(isMobile ? `T:${alert.measured_target.toFixed(0)}` : `TARGET: ${alert.measured_target.toFixed(1)}`, width - paddingRight + 4, yTarget + (isMobile ? 2.5 : 3));
 
     // 4. Draw Invalidation Level
     const yInval = getY(alert.invalidation_level);
@@ -271,24 +277,28 @@ export const MWBreakoutDetailPage: React.FC = () => {
 
     // Invalidation Badge
     ctx.fillStyle = '#e11d48';
-    ctx.fillRect(width - paddingRight + 4, yInval - 8, 86, 16);
+    ctx.fillRect(width - paddingRight + 2, yInval - (isMobile ? 6.5 : 8), badgeW, badgeH);
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 9px sans-serif';
-    ctx.fillText(`INVAL: ${alert.invalidation_level.toFixed(1)}`, width - paddingRight + 8, yInval + 3);
+    ctx.font = badgeFont;
+    ctx.fillText(isMobile ? `SL:${alert.invalidation_level.toFixed(0)}` : `INVAL: ${alert.invalidation_level.toFixed(1)}`, width - paddingRight + 4, yInval + (isMobile ? 2.5 : 3));
 
     // 5. Draw Breakout Candle Marker Badge
     const breakLocalIdx = visibleCandles.findIndex((c) => c.timestamp === alert.breakout_candle_timestamp);
     if (breakLocalIdx !== -1) {
       const bx = getX(breakLocalIdx);
       const bCandle = visibleCandles[breakLocalIdx];
-      const by = isW ? getY(bCandle.high) - 15 : getY(bCandle.low) + 20;
+      const by = isW ? getY(bCandle.high) - (isMobile ? 12 : 15) : getY(bCandle.low) + (isMobile ? 16 : 20);
+      const brkLabel = isW ? 'BREAKOUT ↑' : 'BREAKDOWN ↓';
+      const m = ctx.measureText(brkLabel);
+      const bW = m.width + (isMobile ? 6 : 14);
+      const bH = isMobile ? 13 : 16;
 
       ctx.fillStyle = isW ? '#059669' : '#e11d48';
-      ctx.fillRect(bx - 42, by - 8, 84, 16);
+      ctx.fillRect(bx - bW / 2, by - (isMobile ? 6.5 : 8), bW, bH);
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 9px sans-serif';
+      ctx.font = badgeFont;
       ctx.textAlign = 'center';
-      ctx.fillText(isW ? 'BREAKOUT ↑' : 'BREAKDOWN ↓', bx, by + 3);
+      ctx.fillText(brkLabel, bx, by + (isMobile ? 2.5 : 3));
     }
   }, [alert, candles]);
 
@@ -323,12 +333,12 @@ export const MWBreakoutDetailPage: React.FC = () => {
   const currSym = alert.symbol.includes('BTC') || alert.symbol.includes('ETH') ? '$' : '₹';
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="w-full max-w-6xl mx-auto space-y-4 sm:space-y-6 min-w-0">
       {/* Top Navigation */}
       <div>
         <button
           onClick={() => navigate('/mw-breakouts')}
-          className="inline-flex items-center gap-2 min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 min-h-[38px] sm:min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-all cursor-pointer"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>Back to M/W Breakouts</span>

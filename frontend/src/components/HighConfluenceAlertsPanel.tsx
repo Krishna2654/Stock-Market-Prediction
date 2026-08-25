@@ -74,26 +74,26 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden transition-all">
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden transition-all w-full min-w-0">
       {/* Header Bar */}
-      <div className="px-5 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+      <div className="p-3.5 sm:px-5 sm:py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white min-w-0">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="h-8 w-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
               <ShieldAlert className="h-5 w-5 animate-pulse" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-black tracking-tight text-white flex items-center gap-1.5">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5 truncate">
                   🚨 HIGH-CONFLUENCE BREAKOUT ALERTS
                 </h2>
                 {alerts.length > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse shrink-0">
                     {alerts.length} ACTIVE
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-300 font-medium">
+              <p className="text-[11px] sm:text-xs text-slate-300 font-medium truncate sm:whitespace-normal">
                 Precision breakout alerts based on Trendline + 20 EMA + Volume or W/M + Trendline + 20 EMA.
               </p>
             </div>
@@ -101,11 +101,11 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
         </div>
 
         {/* Filter Pills and Actions */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <div className="flex items-center bg-slate-800/80 p-1 rounded-lg border border-slate-700">
+        <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
+          <div className="flex items-center bg-slate-800/80 p-0.5 sm:p-1 rounded-lg border border-slate-700 overflow-x-auto max-w-full no-scrollbar">
             <button
               onClick={() => setFilterMode('ALL')}
-              className={`px-2.5 py-1 rounded-md font-semibold text-[11px] transition-all cursor-pointer ${
+              className={`px-2 sm:px-2.5 py-1 rounded-md font-semibold text-[10px] sm:text-[11px] whitespace-nowrap transition-all cursor-pointer ${
                 filterMode === 'ALL'
                   ? 'bg-rose-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
@@ -115,7 +115,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
             </button>
             <button
               onClick={() => setFilterMode('THIS_SYMBOL')}
-              className={`px-2.5 py-1 rounded-md font-semibold text-[11px] transition-all cursor-pointer ${
+              className={`px-2 sm:px-2.5 py-1 rounded-md font-semibold text-[10px] sm:text-[11px] whitespace-nowrap transition-all cursor-pointer ${
                 filterMode === 'THIS_SYMBOL'
                   ? 'bg-rose-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
@@ -125,7 +125,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
             </button>
             <button
               onClick={() => setFilterMode('TL_EMA_VOL')}
-              className={`px-2.5 py-1 rounded-md font-semibold text-[11px] transition-all cursor-pointer ${
+              className={`px-2 sm:px-2.5 py-1 rounded-md font-semibold text-[10px] sm:text-[11px] whitespace-nowrap transition-all cursor-pointer ${
                 filterMode === 'TL_EMA_VOL'
                   ? 'bg-rose-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
@@ -135,7 +135,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
             </button>
             <button
               onClick={() => setFilterMode('WM_PATTERN')}
-              className={`px-2.5 py-1 rounded-md font-semibold text-[11px] transition-all cursor-pointer ${
+              className={`px-2 sm:px-2.5 py-1 rounded-md font-semibold text-[10px] sm:text-[11px] whitespace-nowrap transition-all cursor-pointer ${
                 filterMode === 'WM_PATTERN'
                   ? 'bg-rose-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
@@ -145,11 +145,11 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <button
               onClick={() => handleTestAlert('TRENDLINE_EMA_VOLUME_UP_BREAKOUT')}
               disabled={isTriggeringTest}
-              className="px-2.5 py-1.5 bg-emerald-600/80 hover:bg-emerald-600 text-white rounded-lg font-bold text-[11px] transition-all flex items-center gap-1 border border-emerald-500/50 cursor-pointer disabled:opacity-50"
+              className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-emerald-600/80 hover:bg-emerald-600 text-white rounded-lg font-bold text-[10px] sm:text-[11px] transition-all flex items-center gap-1 border border-emerald-500/50 cursor-pointer disabled:opacity-50 min-h-[30px]"
               title="Trigger simulated Type 1 Precision Breakout"
             >
               <Zap className="h-3.5 w-3.5" />
@@ -159,7 +159,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
             <button
               onClick={() => handleTestAlert('W_PATTERN_TRENDLINE_EMA_UP_BREAKOUT')}
               disabled={isTriggeringTest}
-              className="px-2.5 py-1.5 bg-purple-600/80 hover:bg-purple-600 text-white rounded-lg font-bold text-[11px] transition-all flex items-center gap-1 border border-purple-500/50 cursor-pointer disabled:opacity-50"
+              className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-purple-600/80 hover:bg-purple-600 text-white rounded-lg font-bold text-[10px] sm:text-[11px] transition-all flex items-center gap-1 border border-purple-500/50 cursor-pointer disabled:opacity-50 min-h-[30px]"
               title="Trigger simulated Type 2 W Pattern Breakout"
             >
               <Layers className="h-3.5 w-3.5" />
@@ -169,7 +169,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
             <button
               onClick={() => handleTestAlert('M_PATTERN_TRENDLINE_EMA_DOWN_BREAKOUT')}
               disabled={isTriggeringTest}
-              className="px-2.5 py-1.5 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg font-bold text-[11px] transition-all flex items-center gap-1 border border-rose-500/50 cursor-pointer disabled:opacity-50"
+              className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg font-bold text-[10px] sm:text-[11px] transition-all flex items-center gap-1 border border-rose-500/50 cursor-pointer disabled:opacity-50 min-h-[30px]"
               title="Trigger simulated Type 2 M Pattern Breakout"
             >
               <Layers className="h-3.5 w-3.5" />
@@ -179,7 +179,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
             {alerts.length > 0 && (
               <button
                 onClick={handleClear}
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-rose-400 rounded-lg transition-all border border-slate-700 cursor-pointer"
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-rose-400 rounded-lg transition-all border border-slate-700 cursor-pointer min-h-[30px] min-w-[30px] flex items-center justify-center"
                 title="Clear High-Confluence Alerts"
               >
                 <Trash2 className="h-4 w-4" />
@@ -190,7 +190,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
       </div>
 
       {/* Alert Cards Container */}
-      <div className="p-4 bg-slate-50/50">
+      <div className="p-3 sm:p-4 bg-slate-50/50 min-w-0">
         {filteredAlerts.length === 0 ? (
           <div className="py-12 px-4 text-center rounded-xl bg-white border border-dashed border-slate-200 flex flex-col items-center justify-center">
             <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
@@ -208,7 +208,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 min-w-0">
             {filteredAlerts.map((alert) => {
               const isBull = alert.direction === 'UP';
               const isWM = alert.alert_type.includes('PATTERN_TRENDLINE');
@@ -220,7 +220,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
               return (
                 <div
                   key={alert.id}
-                  className={`rounded-2xl border p-4 shadow-2xs transition-all relative overflow-hidden flex flex-col justify-between ${
+                  className={`rounded-2xl border p-3.5 sm:p-4 shadow-2xs transition-all relative overflow-hidden flex flex-col justify-between min-w-0 ${
                     isWM
                       ? isBull
                         ? 'bg-gradient-to-br from-purple-50/70 via-white to-purple-50/30 border-purple-200/90 ring-1 ring-purple-100'
@@ -232,9 +232,9 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
                 >
                   <div>
                     {/* Header: Direction Badge + Exact Breakout Time in IST */}
-                    <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 mb-2">
                       <span
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wide flex items-center gap-1.5 shadow-2xs ${
+                        className={`px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-wide flex items-center gap-1 sm:gap-1.5 shadow-2xs ${
                           isBull
                             ? 'bg-emerald-600 text-white'
                             : 'bg-rose-600 text-white'
@@ -254,7 +254,7 @@ export const HighConfluenceAlertsPanel: React.FC<HighConfluenceAlertsPanelProps>
                           : '🔴 TRENDLINE + EMA + VOL'}
                       </span>
 
-                      <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-slate-700 bg-white/90 px-2 py-0.5 rounded-md border border-slate-200">
+                      <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-mono font-bold text-slate-700 bg-white/90 px-1.5 sm:px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
                         <Clock className="h-3 w-3 text-slate-400" />
                         {formatMarketTime(breakTimestamp, alert.symbol)}
                       </div>

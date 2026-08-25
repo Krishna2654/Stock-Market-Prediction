@@ -135,14 +135,14 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
       : 'bg-amber-50 text-amber-700 border-amber-300';
 
   return (
-    <div className="space-y-6 pb-16">
+    <div className="space-y-4 sm:space-y-6 pb-16 w-full max-w-full min-w-0">
       {/* Top Breadcrumb & Market Switcher Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200 shadow-xs w-full min-w-0">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           {/* Back button */}
           <Link
             to="/markets"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all shadow-2xs group"
+            className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all shadow-2xs group shrink-0"
           >
             <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
             <span>Back to Markets</span>
@@ -151,19 +151,19 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
           {/* Dedicated M/W Breakouts Page Link */}
           <Link
             to="/mw-breakouts"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-bold transition-all shadow-2xs group cursor-pointer"
+            className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-bold transition-all shadow-2xs group cursor-pointer shrink-0"
             title="Open Dedicated M/W Breakouts Page"
           >
             <Target className="h-4 w-4 text-purple-600 group-hover:scale-110 transition-transform" />
             <span>M/W BREAKOUTS</span>
-            <span className="text-[10px] bg-purple-600 text-white px-1.5 py-0.2 rounded-full font-mono">
+            <span className="text-[9px] sm:text-[10px] bg-purple-600 text-white px-1.5 py-0.2 rounded-full font-mono">
               NEW
             </span>
           </Link>
         </div>
 
         {/* Quick Market Switcher Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto max-w-full py-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto max-w-full py-1 no-scrollbar min-w-0">
           <span className="text-[11px] font-bold text-slate-400 uppercase mr-1 hidden sm:inline">
             Switch:
           </span>
@@ -173,7 +173,7 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
               <button
                 key={inst.symbol}
                 onClick={() => navigate(`/markets/${encodeURIComponent(inst.symbol)}`)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
                   isSelected
                     ? 'bg-blue-600 text-white shadow-2xs'
                     : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/60'
@@ -188,17 +188,17 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
 
       {/* Selected Market Executive Header */}
       {currentSynthesis && (
-        <div className="glass-panel rounded-3xl p-6 shadow-xs flex flex-wrap items-center justify-between gap-6 border-l-4 border-blue-600 bg-white border border-slate-200">
-          <div className="flex items-center gap-4">
-            <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 shadow-2xs">
-              <TrendingUp className="h-7 w-7" />
+        <div className="glass-panel rounded-3xl p-4 sm:p-6 shadow-xs flex flex-wrap items-center justify-between gap-4 sm:gap-6 border-l-4 border-blue-600 bg-white border border-slate-200 w-full min-w-0">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <div className="p-2.5 sm:p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 shadow-2xs shrink-0">
+              <TrendingUp className="h-5 w-5 sm:h-7 sm:w-7" />
             </div>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
                   {currentSynthesis.symbol}
                 </h1>
-                <span className="text-xs font-mono px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 font-bold border border-slate-200">
+                <span className="text-xs font-mono px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 font-bold border border-slate-200 shrink-0">
                   {currentSynthesis.ticker}
                 </span>
                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${dataStatusStyle} flex items-center gap-1`}>

@@ -165,6 +165,34 @@ export const ChartView: React.FC<ChartViewProps> = ({
     setIsAutoFollow(true);
   };
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(800);
+
+  // Responsive container width tracking
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleResize = () => {
+      if (container.clientWidth > 0) {
+        setContainerWidth(container.clientWidth);
+      }
+    };
+
+    handleResize();
+
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    resizeObserver.observe(container);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
   // Fetch real market data for active timeframe with instant cache hit
   const fetchChart = useCallback(async (showSpinner = false) => {
     const cacheKey = `${symbol}_${activeTimeframe}`;
@@ -205,8 +233,11 @@ export const ChartView: React.FC<ChartViewProps> = ({
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const width = canvas.parentElement?.clientWidth || 800;
-    const height = 480;
+    const width = canvas.parentElement?.clientWidth || containerWidth || 800;
+    const isMobile = width < 640;
+    const isSmallMobile = width < 420;
+
+    const height = isMobile ? (isSmallMobile ? 330 : 370) : 480;
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
@@ -221,10 +252,10 @@ export const ChartView: React.FC<ChartViewProps> = ({
     const candles = chartData.candles;
     const totalCandles = candles.length;
 
-    const paddingLeft = 14;
-    const paddingRight = 85;
-    const paddingTop = 24;
-    const paddingBottom = 32;
+    const paddingLeft = isSmallMobile ? 6 : isMobile ? 8 : 14;
+    const paddingRight = isSmallMobile ? 54 : isMobile ? 62 : 85;
+    const paddingTop = isMobile ? 18 : 24;
+    const paddingBottom = isMobile ? 22 : 32;
 
     const chartWidth = width - paddingLeft - paddingRight;
     const chartHeight = height - paddingTop - paddingBottom;
@@ -282,7 +313,7 @@ export const ChartView: React.FC<ChartViewProps> = ({
     ctx.strokeStyle = '#f1f5f9';
     ctx.lineWidth = 1;
 
-    const priceSteps = 6;
+    const priceSteps = isMobile ? 4 : 6;
     for (let i = 0; i <= priceSteps; i++) {
       const priceVal = minPrice + (fullRange / priceSteps) * i;
       const y = getY(priceVal);
@@ -295,9 +326,10 @@ export const ChartView: React.FC<ChartViewProps> = ({
 
       // Right price text
       ctx.fillStyle = '#64748b';
-      ctx.font = '10px monospace';
+      ctx.font = isSmallMobile ? 'bold 8px monospace' : isMobile ? 'bold 8.5px monospace' : '10px monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(`${currSym}${priceVal.toFixed(2)}`, paddingLeft + chartWidth + 6, y + 3.5);
+      const formattedPrice = `${currSym}${priceVal >= 1000 ? priceVal.toFixed(1) : priceVal.toFixed(2)}`;
+      ctx.fillText(formattedPrice, paddingLeft + chartWidth + (isMobile ? 3 : 6), y + 3.5);
     }
 
     // -------------------------------------------------------------
@@ -317,9 +349,9 @@ export const ChartView: React.FC<ChartViewProps> = ({
           ctx.setLineDash([]);
 
           ctx.fillStyle = '#16a34a';
-          ctx.font = 'bold 9px sans-serif';
+          ctx.font = isMobile ? 'bold 7.5px sans-serif' : 'bold 9px sans-serif';
           ctx.textAlign = 'right';
-          ctx.fillText(`SUP ${currSym}${sup.toFixed(1)}`, paddingLeft + chartWidth - 6, y - 4);
+          ctx.fillText(`SUP ${currSym}${sup.toFixed(isMobile ? 0 : 1)}`, paddingLeft + chartWidth - (isMobile ? 3 : 6), y - 3.5);
         }
       });
 
@@ -336,17 +368,20 @@ export const ChartView: React.FC<ChartViewProps> = ({
           ctx.setLineDash([]);
 
           ctx.fillStyle = '#dc2626';
-          ctx.font = 'bold 9px sans-serif';
+          ctx.font = isMobile ? 'bold 7.5px sans-serif' : 'bold 9px sans-serif';
           ctx.textAlign = 'right';
-          ctx.fillText(`RES ${currSym}${res.toFixed(1)}`, paddingLeft + chartWidth - 6, y - 4);
+          ctx.fillText(`RES ${currSym}${res.toFixed(isMobile ? 0 : 1)}`, paddingLeft + chartWidth - (isMobile ? 3 : 6), y - 3.5);
         }
       });
 
+      // -------------------------------------------------------------
+      // 3. Structural Invalidation Level (Stop Loss Line)
+      // -------------------------------------------------------------
       if (invalidationLevel) {
         const y = getY(invalidationLevel);
         if (y >= paddingTop && y <= paddingTop + chartHeight) {
-          ctx.strokeStyle = '#d97706';
-          ctx.lineWidth = 1.6;
+          ctx.strokeStyle = 'rgba(217, 119, 6, 0.65)';
+          ctx.lineWidth = 1.4;
           ctx.setLineDash([3, 3]);
           ctx.beginPath();
           ctx.moveTo(paddingLeft, y);
@@ -355,15 +390,15 @@ export const ChartView: React.FC<ChartViewProps> = ({
           ctx.setLineDash([]);
 
           ctx.fillStyle = '#d97706';
-          ctx.font = 'bold 9px sans-serif';
+          ctx.font = isMobile ? 'bold 7.5px sans-serif' : 'bold 9px sans-serif';
           ctx.textAlign = 'right';
-          ctx.fillText('INVALIDATION (SL)', paddingLeft + chartWidth - 6, y - 4);
+          ctx.fillText(isMobile ? 'INVAL (SL)' : 'INVALIDATION (SL)', paddingLeft + chartWidth - (isMobile ? 3 : 6), y - 3.5);
         }
       }
     }
 
     // -------------------------------------------------------------
-    // 3. Multi-Trendlines Rendering
+    // 4. Multi-Trendlines Rendering
     // -------------------------------------------------------------
     if (chartData.trendlines) {
       chartData.trendlines.forEach((tl: any) => {
@@ -634,10 +669,11 @@ export const ChartView: React.FC<ChartViewProps> = ({
             ctx.setLineDash([]);
 
             ctx.fillStyle = color;
-            ctx.font = 'bold 8px sans-serif';
+            ctx.font = isMobile ? 'bold 7px sans-serif' : 'bold 8px sans-serif';
             ctx.textAlign = 'left';
             const neckLabel = isBull ? 'ACTIVE W NECKLINE' : 'ACTIVE M NECKLINE';
-            ctx.fillText(`${neckLabel}: ${currSym}${pat.neckline_price.toFixed(2)}`, paddingLeft + 6, neckY - 3);
+            const neckText = isMobile ? `${neckLabel}: ${currSym}${pat.neckline_price.toFixed(isMobile ? 0 : 2)}` : `${neckLabel}: ${currSym}${pat.neckline_price.toFixed(2)}`;
+            ctx.fillText(neckText, paddingLeft + 6, neckY - 3);
           }
         }
 
@@ -656,10 +692,11 @@ export const ChartView: React.FC<ChartViewProps> = ({
             ctx.setLineDash([]);
 
             ctx.fillStyle = targetColor;
-            ctx.font = 'bold 8px sans-serif';
+            ctx.font = isMobile ? 'bold 7px sans-serif' : 'bold 8px sans-serif';
             ctx.textAlign = 'left';
             const targetLabel = isBull ? 'W TARGET 1' : 'M TARGET 1';
-            ctx.fillText(`${targetLabel}: ${currSym}${measuredTarget.toFixed(2)} (Score: ${pat.quality_score}/100)`, paddingLeft + 6, targetY - 3);
+            const targetText = isMobile ? `${targetLabel}: ${currSym}${measuredTarget.toFixed(isMobile ? 0 : 2)}` : `${targetLabel}: ${currSym}${measuredTarget.toFixed(2)} (Score: ${pat.quality_score}/100)`;
+            ctx.fillText(targetText, paddingLeft + 6, targetY - 3);
           }
         }
 
@@ -669,17 +706,18 @@ export const ChartView: React.FC<ChartViewProps> = ({
           if (brkIdx >= startIdx && brkIdx <= endIdx && brkIdx < candles.length) {
             const brkX = getX(brkIdx);
             const brkPrice = pat.breakout_close || pat.neckline_price;
-            const brkY = isBull ? getY(brkPrice) - 18 : getY(brkPrice) + 18;
+            const brkY = isBull ? getY(brkPrice) - (isMobile ? 14 : 18) : getY(brkPrice) + (isMobile ? 14 : 18);
             const isHighConf = pat.status === 'HIGH_CONFLUENCE_CONFIRMED' || pat.quality_score >= 75;
             const brkLabel = isBull 
-              ? (isHighConf ? 'W + TL + EMA + VOL ↑' : 'W BREAKOUT ↑')
-              : (isHighConf ? 'M + TL + EMA + VOL ↓' : 'M BREAKDOWN ↓');
+              ? (isHighConf ? (isMobile ? 'W+TL+EMA ↑' : 'W + TL + EMA + VOL ↑') : 'W BREAKOUT ↑')
+              : (isHighConf ? (isMobile ? 'M+TL+EMA ↓' : 'M + TL + EMA + VOL ↓') : 'M BREAKDOWN ↓');
 
+            ctx.font = isMobile ? 'bold 7.5px sans-serif' : 'bold 9px sans-serif';
             const metrics = ctx.measureText(brkLabel);
-            const boxW = metrics.width + 12;
-            const boxH = 16;
+            const boxW = metrics.width + (isMobile ? 8 : 12);
+            const boxH = isMobile ? 13 : 16;
             const boxX = brkX - boxW / 2;
-            const boxY = brkY - 10;
+            const boxY = brkY - (isMobile ? 8 : 10);
 
             ctx.fillStyle = isBull ? '#16a34a' : '#dc2626';
             ctx.beginPath();
@@ -691,9 +729,8 @@ export const ChartView: React.FC<ChartViewProps> = ({
             ctx.fill();
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 9px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(brkLabel, brkX, brkY + 2);
+            ctx.fillText(brkLabel, brkX, brkY + (isMobile ? 1.5 : 2));
           }
         } else if (pat.status === 'BREAKOUT_FORMING' || pat.status === 'BREAKDOWN_FORMING') {
           // Draw Forming Indicator on latest candle
@@ -701,11 +738,11 @@ export const ChartView: React.FC<ChartViewProps> = ({
           if (latestIdx >= startIdx && latestIdx <= endIdx) {
             const formX = getX(latestIdx);
             const formPrice = candles[latestIdx].close;
-            const formY = isBull ? getY(formPrice) - 20 : getY(formPrice) + 20;
-            const formLabel = isBull ? '⏳ W BREAKOUT FORMING' : '⏳ M BREAKDOWN FORMING';
+            const formY = isBull ? getY(formPrice) - 16 : getY(formPrice) + 16;
+            const formLabel = isBull ? (isMobile ? '⏳ W FORMING' : '⏳ W BREAKOUT FORMING') : (isMobile ? '⏳ M FORMING' : '⏳ M BREAKDOWN FORMING');
 
             ctx.fillStyle = '#d97706';
-            ctx.font = 'bold 8px sans-serif';
+            ctx.font = isMobile ? 'bold 7px sans-serif' : 'bold 8px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(formLabel, formX, formY);
           }
@@ -747,21 +784,21 @@ export const ChartView: React.FC<ChartViewProps> = ({
         if (targetCandleIndex >= startIdx && targetCandleIndex <= endIdx) {
           const x = getX(targetCandleIndex);
           const isBull = b.direction === 'BULLISH';
-          const y = isBull ? getY(b.break_price) - 16 : getY(b.break_price) + 16;
+          const y = isBull ? getY(b.break_price) - (isMobile ? 13 : 16) : getY(b.break_price) + (isMobile ? 13 : 16);
 
           ctx.fillStyle = isBull ? '#16a34a' : '#dc2626';
-          ctx.font = 'bold 9px sans-serif';
+          ctx.font = isMobile ? 'bold 7.5px sans-serif' : 'bold 9px sans-serif';
           ctx.textAlign = 'center';
 
           let label = 'BOS';
           if (b.event_type === 'TRENDLINE_EMA_VOLUME_UP_BREAKOUT') {
-            label = 'TL + EMA + VOL UP';
+            label = isMobile ? 'TL+EMA UP' : 'TL + EMA + VOL UP';
           } else if (b.event_type === 'TRENDLINE_EMA_VOLUME_DOWN_BREAKOUT') {
-            label = 'TL + EMA + VOL DOWN';
+            label = isMobile ? 'TL+EMA DN' : 'TL + EMA + VOL DOWN';
           } else if (b.event_type === 'W_PATTERN_TRENDLINE_EMA_UP_BREAKOUT') {
-            label = 'W + TL + EMA + VOL ↑';
+            label = isMobile ? 'W+TL+EMA ↑' : 'W + TL + EMA + VOL ↑';
           } else if (b.event_type === 'M_PATTERN_TRENDLINE_EMA_DOWN_BREAKOUT') {
-            label = 'M + TL + EMA + VOL ↓';
+            label = isMobile ? 'M+TL+EMA ↓' : 'M + TL + EMA + VOL ↓';
           } else if (b.event_type === 'W_PATTERN_BREAKOUT' || b.event_type?.includes('W_PAT')) {
             label = 'W BREAKOUT ↑';
           } else if (b.event_type === 'M_PATTERN_BREAKDOWN' || b.event_type?.includes('M_PAT')) {
@@ -779,10 +816,10 @@ export const ChartView: React.FC<ChartViewProps> = ({
           // Draw highlight badge
           if (isPrecisionTlVol || isPrecisionWm) {
             const metrics = ctx.measureText(label);
-            const boxW = metrics.width + 10;
-            const boxH = 15;
+            const boxW = metrics.width + (isMobile ? 6 : 10);
+            const boxH = isMobile ? 12 : 15;
             const boxX = x - boxW / 2;
-            const boxY = y - 10;
+            const boxY = y - (isMobile ? 8 : 10);
 
             ctx.fillStyle = isBull ? '#16a34a' : '#dc2626';
             ctx.beginPath();
@@ -802,13 +839,13 @@ export const ChartView: React.FC<ChartViewProps> = ({
           ctx.beginPath();
           ctx.fillStyle = isBull ? '#16a34a' : '#dc2626';
           if (isBull) {
-            ctx.moveTo(x, y + 4);
-            ctx.lineTo(x - 3, y + 9);
-            ctx.lineTo(x + 3, y + 9);
+            ctx.moveTo(x, y + (isMobile ? 3 : 4));
+            ctx.lineTo(x - 2.5, y + (isMobile ? 7 : 9));
+            ctx.lineTo(x + 2.5, y + (isMobile ? 7 : 9));
           } else {
-            ctx.moveTo(x, y - 4);
-            ctx.lineTo(x - 3, y - 9);
-            ctx.lineTo(x + 3, y - 9);
+            ctx.moveTo(x, y - (isMobile ? 3 : 4));
+            ctx.lineTo(x - 2.5, y - (isMobile ? 7 : 9));
+            ctx.lineTo(x + 2.5, y - (isMobile ? 7 : 9));
           }
           ctx.closePath();
           ctx.fill();
@@ -820,16 +857,17 @@ export const ChartView: React.FC<ChartViewProps> = ({
     // 8. Time Axis (X-Axis) Strictly Formatted in Asia/Kolkata (IST)
     // -------------------------------------------------------------
     ctx.fillStyle = '#64748b';
-    ctx.font = 'bold 9px monospace';
+    ctx.font = isSmallMobile ? 'bold 7.5px monospace' : isMobile ? 'bold 8px monospace' : 'bold 9px monospace';
     ctx.textAlign = 'center';
 
-    const labelInterval = Math.max(1, Math.floor(visibleCandles.length / 7));
+    const labelDivisor = isSmallMobile ? 2.8 : isMobile ? 3.8 : 7;
+    const labelInterval = Math.max(1, Math.floor(visibleCandles.length / labelDivisor));
     for (let i = startIdx; i <= endIdx; i += labelInterval) {
       const c = candles[i];
       if (!c) continue;
       const x = getX(i);
       const timeStr = formatCandleTime(c.time, symbol);
-      ctx.fillText(timeStr, x, height - 10);
+      ctx.fillText(timeStr, x, height - (isMobile ? 6 : 10));
     }
   }, [
     chartData,
@@ -855,7 +893,8 @@ export const ChartView: React.FC<ChartViewProps> = ({
     keySupports,
     keyResistances,
     invalidationLevel,
-    symbol
+    symbol,
+    containerWidth
   ]);
 
   // Mouse Drag Panning Handlers
@@ -873,8 +912,10 @@ export const ChartView: React.FC<ChartViewProps> = ({
     const candles = chartData.candles;
     const totalCandles = candles.length;
 
-    const paddingLeft = 14;
-    const paddingRight = 85;
+    const isMobile = canvas.clientWidth < 640;
+    const isSmallMobile = canvas.clientWidth < 420;
+    const paddingLeft = isSmallMobile ? 6 : isMobile ? 8 : 14;
+    const paddingRight = isSmallMobile ? 54 : isMobile ? 62 : 85;
     const chartWidth = canvas.clientWidth - paddingLeft - paddingRight;
 
     if (isDraggingRef.current) {
@@ -938,7 +979,7 @@ export const ChartView: React.FC<ChartViewProps> = ({
     }
   };
 
-  // Touch Swipe Panning Handlers
+  // Touch Swipe for Mobile Panning
   const touchStartXRef = useRef<number>(0);
   const touchStartPanRef = useRef<number>(0);
 
@@ -968,22 +1009,22 @@ export const ChartView: React.FC<ChartViewProps> = ({
   const isMarketRunning = marketSession?.is_running ?? true;
 
   return (
-    <div className="glass-panel rounded-2xl p-5 shadow-xs flex flex-col gap-4 bg-white border border-slate-200 relative select-none">
+    <div ref={containerRef} className="glass-panel rounded-2xl p-3 sm:p-5 shadow-xs flex flex-col gap-3 sm:gap-4 bg-white border border-slate-200 relative select-none w-full max-w-full min-w-0 overflow-hidden">
       {/* Top Banner: Real-Time Market Status & Live Current Price Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 bg-slate-50 p-2.5 sm:p-3 rounded-xl border border-slate-200 w-full min-w-0">
         {/* Current Live Price & Day Delta */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           {currentPrice !== null && (
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                 Current Price:
               </span>
-              <span className="text-xl font-black font-mono text-slate-900">
+              <span className="text-lg sm:text-xl font-black font-mono text-slate-900 truncate">
                 {currSym}{currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               {priceChange !== undefined && (
                 <span
-                  className={`text-xs font-mono font-bold px-2 py-0.5 rounded-lg flex items-center gap-0.5 ${
+                  className={`text-[11px] sm:text-xs font-mono font-bold px-1.5 sm:px-2 py-0.5 rounded-lg flex items-center gap-0.5 shrink-0 ${
                     isPriceUp ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                   }`}
                 >
@@ -995,19 +1036,19 @@ export const ChartView: React.FC<ChartViewProps> = ({
         </div>
 
         {/* Live Market Running Indicator & Navigation Pill */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           {/* Historical vs Live Follow Status Button */}
           {panOffset > 0 ? (
             <button
               onClick={goToLive}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-all animate-pulse cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-all animate-pulse cursor-pointer"
               title="Click to restore live edge"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
-              <span>GO TO LIVE ({panOffset} bars back)</span>
+              <span>LIVE ({panOffset} back)</span>
             </button>
           ) : (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs">
+            <div className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>LIVE FOLLOWING</span>
             </div>
@@ -1015,21 +1056,21 @@ export const ChartView: React.FC<ChartViewProps> = ({
 
           {/* Session Status */}
           <div
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-2xs ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold border shadow-2xs ${
               isMarketRunning
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                 : 'bg-slate-100 text-slate-700 border-slate-300'
             }`}
           >
             <span
-              className={`h-2.5 w-2.5 rounded-full ${
+              className={`h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full ${
                 isMarketRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
               }`}
             />
-            <span>{marketSession?.message || (isMarketRunning ? '● MARKET IS LIVE' : '○ MARKET CLOSED')}</span>
+            <span>{marketSession?.message || (isMarketRunning ? '● LIVE' : '○ CLOSED')}</span>
           </div>
 
-          <div className="hidden sm:flex items-center gap-1 text-[11px] text-slate-500 font-mono">
+          <div className="hidden md:flex items-center gap-1 text-[11px] text-slate-500 font-mono">
             <Clock className="h-3 w-3 text-slate-400" />
             <span>
               {chartData?.latest_candle_time
@@ -1041,15 +1082,15 @@ export const ChartView: React.FC<ChartViewProps> = ({
       </div>
 
       {/* Header Toolbar: Timeframe Selector + Zoom / Overlay Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-        <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 border-b border-slate-200 pb-3 w-full min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
           {/* Timeframe Selector (4H | 1H | 15M | 5M) */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 p-0.5 sm:p-1 rounded-xl border border-slate-200 shadow-inner shrink-0">
             {(['4H', '1H', '15M', '5M'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => handleTimeframeChange(tf)}
-                className={`px-3.5 py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                className={`px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
                   activeTimeframe === tf
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white'
@@ -1061,24 +1102,24 @@ export const ChartView: React.FC<ChartViewProps> = ({
           </div>
 
           {/* Zoom Controls (+ / - / Reset) */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 p-0.5 sm:p-1 rounded-xl border border-slate-200 shrink-0">
             <button
               onClick={zoomIn}
-              className="p-1 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all cursor-pointer"
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all cursor-pointer min-h-[30px] min-w-[30px] flex items-center justify-center"
               title="Zoom In (or Wheel Up)"
             >
               <ZoomIn className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={zoomOut}
-              className="p-1 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all cursor-pointer"
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all cursor-pointer min-h-[30px] min-w-[30px] flex items-center justify-center"
               title="Zoom Out (or Wheel Down)"
             >
               <ZoomOut className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={resetZoomAndPan}
-              className="p-1 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all cursor-pointer"
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all cursor-pointer min-h-[30px] min-w-[30px] flex items-center justify-center"
               title="Reset Zoom & Pan"
             >
               <RotateCcw className="h-3.5 w-3.5" />
@@ -1086,7 +1127,7 @@ export const ChartView: React.FC<ChartViewProps> = ({
           </div>
 
           {/* Quick Visibility Pills */}
-          <div className="hidden md:flex items-center gap-1.5 text-xs">
+          <div className="hidden xl:flex items-center gap-1.5 text-xs">
             <button
               onClick={toggleAllTrendlines}
               className={`px-2.5 py-1 rounded-lg border font-semibold flex items-center gap-1 transition-all cursor-pointer ${
@@ -1454,7 +1495,7 @@ export const ChartView: React.FC<ChartViewProps> = ({
       )}
 
       {/* Interactive Chart Canvas Area with Drag Panning & Wheel Zoom */}
-      <div className="relative w-full h-[480px] rounded-xl overflow-hidden bg-white border border-slate-200">
+      <div className="relative w-full h-[330px] sm:h-[370px] md:h-[480px] rounded-xl overflow-hidden bg-white border border-slate-200 min-w-0">
         {isLoading && (
           <div className="absolute inset-0 bg-white/70 backdrop-blur-xs flex items-center justify-center z-10">
             <div className="flex items-center gap-2 text-slate-700 font-semibold text-xs">

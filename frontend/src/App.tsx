@@ -202,7 +202,7 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col selection:bg-blue-500 selection:text-white font-sans">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900 flex flex-col selection:bg-blue-500 selection:text-white font-sans">
       {/* Top Navigation Bar */}
       <Navbar
         currentProvider={currentProvider}
@@ -222,7 +222,7 @@ const AppContent: React.FC = () => {
       />
 
       {/* Main Multi-Page Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full min-w-0 mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6">
         <Routes>
           {/* DEFAULT ROUTE & DASHBOARD: Open the Live Chart & Market Analysis directly! */}
           <Route
@@ -352,8 +352,8 @@ const AppContent: React.FC = () => {
 
       {/* Floating Real-Time Breakout Toast Notification */}
       {latestToast && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full bg-white border border-blue-500 shadow-2xl rounded-2xl p-4 backdrop-blur-md flex items-start gap-3">
-          <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-200">
+        <div className="fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-6 sm:right-6 z-50 max-w-sm w-auto bg-white border border-blue-500 shadow-2xl rounded-2xl p-4 backdrop-blur-md flex items-start gap-3">
+          <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 shrink-0">
             <Bell className="h-5 w-5 animate-pulse" />
           </div>
           <div className="flex-1 text-xs">

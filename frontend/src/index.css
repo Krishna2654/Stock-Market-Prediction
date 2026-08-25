@@ -1,13 +1,29 @@
 @import "tailwindcss";
 
 @layer base {
-  body {
+  html, body {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
     background-color: #f8fafc;
     color: #0f172a;
     font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    overflow-x: hidden;
     letter-spacing: -0.01em;
+    -webkit-tap-highlight-color: transparent;
   }
+
+  *, ::before, ::after {
+    box-sizing: border-box;
+  }
+}
+
+/* Hide scrollbar for clean horizontal mobile tabs */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Crisp Light Mode Scrollbar */
