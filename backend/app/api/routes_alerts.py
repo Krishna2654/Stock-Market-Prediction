@@ -1,8 +1,9 @@
 import uuid
+import asyncio
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime, timezone
-from app.models.schemas import AlertRule, AlertNotification, HighConfluenceAlert, MWBreakoutAlert, TrendlineShortlistCandidate
+from app.models.schemas import AlertRule, AlertNotification, HighConfluenceAlert, MWBreakoutAlert, TrendlineShortlistCandidate, WMPatternStructure, MultiTimeframeSynthesis
 from app.alerts.engine import alert_engine
 from app.alerts.high_confluence_engine import high_confluence_alert_engine
 from app.alerts.mw_breakout_engine import mw_breakout_engine
@@ -240,15 +241,8 @@ def get_mw_breakout_alerts(
     pattern_type: Optional[str] = Query(None, description="Pattern type (W, M, or All)"),
     status: Optional[str] = Query(None, description="Status filter (ACTIVE, COMPLETED, INVALIDATED, or All)"),
     date_filter: Optional[str] = Query(None, description="Date filter (latest, today, 24h, 7d, all)"),
-    limit: int = Query(50, description="Max results")
+    limit: int = Query(200, description="Max results")
 ):
-    try:
-        from app.api.routes_analysis import _synthesis_cache
-        for _, (_, synth) in list(_synthesis_cache.items()):
-            mw_breakout_engine._update_existing_alert_statuses(synth)
-    except Exception:
-        pass
-
     return mw_breakout_engine.get_alerts(
         symbol=symbol,
         timeframe=timeframe,
@@ -258,19 +252,30 @@ def get_mw_breakout_alerts(
         limit=limit
     )
 
+@router.get("/mw-breakouts-candidates", response_model=List[WMPatternStructure])
+async def get_mw_breakout_candidates(
+    symbol: Optional[str] = Query(None, description="Symbol filter"),
+    timeframe: Optional[str] = Query("15M", description="Timeframe")
+):
+    """
+    Exposes evaluated candidate formations (both confirmed and rejected, with rejection_reason)
+    for transparent debugging of W/M structural decisions.
+    """
+    from app.api.routes_analysis import get_chart_data
+    sym = symbol or "BTC/USD"
+    tf = timeframe or "15M"
+    try:
+        data = await get_chart_data(symbol=sym, timeframe=tf)
+        return data.get("wm_debug_candidates", [])
+    except Exception:
+        return []
+
 @router.get("/mw-breakouts/stats")
 def get_mw_breakout_stats():
     return mw_breakout_engine.get_summary_stats()
 
 @router.get("/mw-breakouts/{alert_id:path}", response_model=MWBreakoutAlert)
 def get_mw_breakout_detail(alert_id: str):
-    try:
-        from app.api.routes_analysis import _synthesis_cache
-        for _, (_, synth) in list(_synthesis_cache.items()):
-            mw_breakout_engine._update_existing_alert_statuses(synth)
-    except Exception:
-        pass
-
     alert = mw_breakout_engine.get_alert_by_id(alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="M/W Breakout Alert not found")

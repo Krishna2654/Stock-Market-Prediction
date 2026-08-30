@@ -16,9 +16,13 @@ configured_instruments: List[InstrumentConfig] = [
     for item in settings.DEFAULT_INSTRUMENTS
 ]
 
+from app.data.broker_providers import UpstoxProvider, ZerodhaKiteProvider
+
 # Real Market Data Providers only (No Demo/Simulated in Production)
 providers: Dict[str, MarketDataProvider] = {
-    "yfinance": YahooFinanceProvider()
+    "yfinance": YahooFinanceProvider(),
+    "upstox": UpstoxProvider(),
+    "kite": ZerodhaKiteProvider()
 }
 
 current_provider_name: str = "yfinance"

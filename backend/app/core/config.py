@@ -47,13 +47,20 @@ class Settings(BaseSettings):
     
     # Precision Breakout & Pattern Alert Defaults
     GOOD_VOLUME_THRESHOLD: float = 1.20
-    W_M_SWING_TOLERANCE_ATR: float = 0.75
-    PATTERN_PRICE_TOLERANCE_ATR: float = 0.75
-    MIN_PATTERN_DEPTH_ATR: float = 1.50
+    W_M_SWING_LEFT_BARS: int = 4
+    W_M_SWING_RIGHT_BARS: int = 2
+    W_M_MIN_SWING_DISTANCE_ATR: float = 0.30
+    W_M_SWING_TOLERANCE_ATR: float = 1.20
+    W_M_PRICE_TOLERANCE_PCT: float = 0.015
+    PATTERN_PRICE_TOLERANCE_ATR: float = 1.20
+    MIN_PATTERN_DEPTH_ATR: float = 1.20
     MIN_W_M_SWING_SEPARATION: int = 5
+    MAX_W_M_SWING_SEPARATION: int = 60
     MIN_PATTERN_BAR_SPACING: int = 5
-    MIN_BREAKOUT_DISTANCE_ATR: float = 0.10
+    MIN_BREAKOUT_DISTANCE_ATR: float = 0.05
     MIN_W_M_HIGH_CONFLUENCE_SCORE: int = 75
+    W_M_SL_ATR_BUFFER: float = 0.15
+    W_M_TARGET_2_EXTENSION: float = 1.618
     
     # Indicator Periods
     EMA_FAST: int = 20

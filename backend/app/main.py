@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes_instruments import router as instruments_router
-from app.api.routes_analysis import router as analysis_router, _analyze_instrument
+from app.api.routes_analysis import router as analysis_router, _analyze_instrument, update_synthesis_cache
 from app.api.routes_ai import router as ai_router
 from app.api.routes_alerts import router as alerts_router
 from app.api.routes_backtest import router as backtest_router
@@ -23,73 +23,103 @@ background_monitor_task = None
 
 async def market_monitor_loop():
     """
-    Background worker that warms up market data immediately on startup,
-    runs periodically to detect new BOS, CHoCH, and Breakout events across all
-    configured instruments, and broadcasts real-time updates via WebSockets.
+    Continuous background monitor that refreshes multi-timeframe analysis
+    for all active instruments and broadcasts real-time synthesis updates
+    and alerts via WebSockets.
     """
     print("[Market Monitor] Warming up market data cache on startup...")
     # Allow uvicorn to finish binding
     await asyncio.sleep(1)
     
+    async def _process_single_instrument(inst, prov):
+        try:
+            synthesis = await _analyze_instrument(inst.symbol, inst.ticker, prov)
+            # Warm cache so HTTP overview requests return in 0ms
+            update_synthesis_cache(inst.symbol, synthesis)
+
+            # Broadcast synthesis update immediately so market cards stay live
+            await ws_manager.broadcast({
+                "type": "SYNTHESIS_UPDATE",
+                "symbol": inst.symbol,
+                "overall_bias": synthesis.overall_bias,
+                "evidence_score": synthesis.evidence_score.total_score,
+                "current_price": synthesis.current_price,
+                "current_state": synthesis.current_state,
+                "latest_event": synthesis.latest_important_event.model_dump() if synthesis.latest_important_event else None
+            })
+
+            # Independent alert processing
+            new_alerts = []
+            new_high_alerts = []
+            new_mw, updated_mw = [], []
+            new_shortlist = []
+
+            try:
+                new_alerts = alert_engine.process_synthesis_for_alerts(synthesis)
+            except Exception as e:
+                print(f"[Market Monitor Alert Error for {inst.symbol}]: {e}")
+
+            try:
+                new_high_alerts = high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synthesis)
+            except Exception as e:
+                print(f"[Market Monitor High Confluence Error for {inst.symbol}]: {e}")
+
+            try:
+                new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(synthesis)
+            except Exception as e:
+                print(f"[Market Monitor MW Error for {inst.symbol}]: {e}")
+
+            try:
+                new_shortlist = trendline_shortlist_engine.process_synthesis(synthesis)
+            except Exception as e:
+                print(f"[Market Monitor Shortlist Error for {inst.symbol}]: {e}")
+            
+            # If standard alerts triggered, broadcast on ALERT_TRIGGERED
+            for alert in new_alerts:
+                await ws_manager.broadcast({
+                    "type": "ALERT_TRIGGERED",
+                    "alert": alert.model_dump()
+                })
+
+            # If high-confluence alerts triggered, broadcast on separate HIGH_CONFLUENCE_ALERT_TRIGGERED
+            for hc_alert in new_high_alerts:
+                await ws_manager.broadcast({
+                    "type": "HIGH_CONFLUENCE_ALERT_TRIGGERED",
+                    "alert": hc_alert.model_dump()
+                })
+
+            # If M/W breakout triggered, broadcast on MW_BREAKOUT_TRIGGERED
+            for mwa in new_mw:
+                await ws_manager.broadcast({
+                    "type": "MW_BREAKOUT_TRIGGERED",
+                    "alert": mwa.model_dump()
+                })
+
+            # If M/W breakout status updated (e.g. TARGET 1/2 HIT or SL HIT), broadcast update
+            for mwa in updated_mw:
+                await ws_manager.broadcast({
+                    "type": "MW_BREAKOUT_STATUS_UPDATED",
+                    "alert": mwa.model_dump()
+                })
+
+            # If new Trendline Breakout Shortlist candidate found, broadcast update
+            for cand in new_shortlist:
+                await ws_manager.broadcast({
+                    "type": "TRENDLINE_SHORTLIST_UPDATED",
+                    "candidate": cand.model_dump()
+                })
+        except Exception as e:
+            print(f"[Market Monitor Error for {inst.symbol}]: {e}")
+
     while True:
         try:
             provider = get_current_provider()
-            for inst in configured_instruments:
-                if inst.is_active:
-                    try:
-                        synthesis = await _analyze_instrument(inst.symbol, inst.ticker, provider)
-                        new_alerts = alert_engine.process_synthesis_for_alerts(synthesis)
-                        new_high_alerts = high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synthesis)
-                        new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(synthesis)
-                        new_shortlist = trendline_shortlist_engine.process_synthesis(synthesis)
-                        
-                        # Broadcast synthesis update
-                        await ws_manager.broadcast({
-                            "type": "SYNTHESIS_UPDATE",
-                            "symbol": inst.symbol,
-                            "overall_bias": synthesis.overall_bias,
-                            "evidence_score": synthesis.evidence_score.total_score,
-                            "current_price": synthesis.current_price,
-                            "current_state": synthesis.current_state,
-                            "latest_event": synthesis.latest_important_event.model_dump() if synthesis.latest_important_event else None
-                        })
-                        
-                        # If standard alerts triggered, broadcast on ALERT_TRIGGERED
-                        for alert in new_alerts:
-                            await ws_manager.broadcast({
-                                "type": "ALERT_TRIGGERED",
-                                "alert": alert.model_dump()
-                            })
-
-                        # If high-confluence alerts triggered, broadcast on separate HIGH_CONFLUENCE_ALERT_TRIGGERED
-                        for hc_alert in new_high_alerts:
-                            await ws_manager.broadcast({
-                                "type": "HIGH_CONFLUENCE_ALERT_TRIGGERED",
-                                "alert": hc_alert.model_dump()
-                            })
-
-                        # If M/W breakout triggered, broadcast on MW_BREAKOUT_TRIGGERED
-                        for mwa in new_mw:
-                            await ws_manager.broadcast({
-                                "type": "MW_BREAKOUT_TRIGGERED",
-                                "alert": mwa.model_dump()
-                            })
-
-                        # If M/W breakout status updated (e.g. TARGET 1/2 HIT or SL HIT), broadcast update
-                        for mwa in updated_mw:
-                            await ws_manager.broadcast({
-                                "type": "MW_BREAKOUT_STATUS_UPDATED",
-                                "alert": mwa.model_dump()
-                            })
-
-                        # If new Trendline Breakout Shortlist candidate found, broadcast update
-                        for cand in new_shortlist:
-                            await ws_manager.broadcast({
-                                "type": "TRENDLINE_SHORTLIST_UPDATED",
-                                "candidate": cand.model_dump()
-                            })
-                    except Exception as e:
-                        print(f"[Market Monitor Error for {inst.symbol}]: {e}")
+            tasks = [
+                _process_single_instrument(inst, provider)
+                for inst in configured_instruments
+                if inst.is_active
+            ]
+            await asyncio.gather(*tasks, return_exceptions=True)
             
             await asyncio.sleep(30)  # Refresh every 30s
         except asyncio.CancelledError:

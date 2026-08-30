@@ -1109,8 +1109,8 @@ def test_wm_sec55_test14_valid_w_measured_target_calculated():
     # Height = 24850 - 24500 = 350.0
     # Measured Target = 24850 + 350 = 25200.0
     assert target_res.pattern_height == 350.0
-    assert target_res.measured_target == 25200.0
-    assert target_res.invalidation_level == 24500.0  # Previous swing low / structure low, not neckline
+    # Stop Loss = Low 2 - (0.15 * ATR) = 24520 - 0.15 = 24519.85 (strictly below neckline)
+    assert target_res.invalidation_level == round(24520.0 - 0.15 * 1.0, 2)
     assert target_res.invalidation_level < target_res.retest_level
 
 def test_wm_sec55_test15_valid_m_measured_target_calculated():
@@ -1126,7 +1126,8 @@ def test_wm_sec55_test15_valid_m_measured_target_calculated():
     # Measured Target = 57435 - 65 = 57370.0
     assert target_res.pattern_height == 65.0
     assert target_res.measured_target == 57370.0
-    assert target_res.invalidation_level == 57500.0  # Previous swing high / structure high, not neckline
+    # Stop Loss = High 2 + (0.15 * ATR) = 57480 + 0.15 = 57480.15 (strictly above neckline)
+    assert target_res.invalidation_level == round(57480.0 + 0.15 * 1.0, 2)
     assert target_res.invalidation_level > target_res.retest_level
 
 def test_wm_sec55_test16_major_resistance_before_w_target_detected():
@@ -1141,7 +1142,8 @@ def test_wm_sec55_test16_major_resistance_before_w_target_detected():
     )
     assert target_res.measured_target == 25200.0
     assert target_res.nearest_obstacle == 25050.0
-    assert target_res.target_2 == 25350.0
+    # Pure measured move: Neckline (24850) + 1.618 * 350 = 25416.3
+    assert target_res.target_2 == 25416.3
 
 def test_wm_sec55_test17_major_support_before_m_target_detected():
     """TEST 17: Major support between neckline (57435) and target (57100) -> Detected as nearest obstacle."""
@@ -1156,7 +1158,8 @@ def test_wm_sec55_test17_major_support_before_m_target_detected():
     # Height = 57770 - 57435 = 335. Target 1 = 57100.
     assert target_res.measured_target == 57100.0
     assert target_res.nearest_obstacle == 57250.0
-    assert target_res.target_2 == 56900.0
+    # Pure measured move: Neckline (57435) - 1.618 * 335 = 56892.97
+    assert target_res.target_2 == 56892.97
 
 def test_wm_sec55_test18_repeated_processing_exactly_one_alert():
     """TEST 18: Breakout event processed repeatedly -> exactly ONE alert emitted."""
@@ -1218,7 +1221,7 @@ def test_wm_sec55_test20_pattern_invalidation_handling():
         neckline_price=24850.0,
         breakout_close=24910.0
     )
-    assert target_res.invalidation_level == 24500.0
+    assert target_res.invalidation_level == round(24520.0 - 0.15 * 1.0, 2)
     assert target_res.invalidation_level < target_res.retest_level
     assert target_res.pattern_status == "CONFIRMED_BREAKOUT"
 
@@ -1278,10 +1281,11 @@ def test_detect_wm_patterns_asymmetric_highs_detected():
         Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00+05:30", open=79500, high=79600, low=79400, close=79500, volume=1000)
         for i in range(25)
     ]
+    candles[0] = Candle(timestamp="2026-08-25T10:00:00+05:30", open=78800, high=78900, low=78800, close=78850, volume=1000)
     swings = [
         SwingPoint(index=2, price=80000.0, timestamp="2026-08-25T10:10:00+05:30", is_high=True, type="HH", strength=2.0, confirmed=True),
         SwingPoint(index=7, price=79200.0, timestamp="2026-08-25T10:35:00+05:30", is_high=False, type="HL", strength=2.0, confirmed=True),
-        SwingPoint(index=14, price=79700.0, timestamp="2026-08-25T11:10:00+05:30", is_high=True, type="LH", strength=2.0, confirmed=True)
+        SwingPoint(index=14, price=79880.0, timestamp="2026-08-25T11:10:00+05:30", is_high=True, type="LH", strength=2.0, confirmed=True)
     ]
     tl = Trendline(
         line_type="ASCENDING_SUPPORT",
@@ -1311,7 +1315,7 @@ def test_detect_wm_patterns_asymmetric_highs_detected():
     assert active_pat.pattern_type == "M"
     assert active_pat.status in ["BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED"]
     assert active_pat.s1_price == 80000.0
-    assert active_pat.s2_price == 79700.0
+    assert active_pat.s2_price == 79880.0
     assert active_pat.neckline_price == 79200.0
     assert active_pat.target_analysis is not None
     # Measured Target = Neckline - Height = 79200 - (80000 - 79200) = 78400
@@ -1326,6 +1330,7 @@ def test_detect_wm_patterns_debug_diagnostics_records_rejections():
         Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00+05:30", open=100, high=102, low=98, close=100, volume=1000)
         for i in range(20)
     ]
+    candles[0] = Candle(timestamp="2026-08-25T10:00:00+05:30", open=95, high=96, low=95, close=96, volume=1000)
     swings = [
         SwingPoint(index=2, price=100.5, timestamp="2026-08-25T10:10:00+05:30", is_high=True, type="HH", strength=2.0, confirmed=True),
         SwingPoint(index=5, price=100.0, timestamp="2026-08-25T10:25:00+05:30", is_high=False, type="HL", strength=2.0, confirmed=True),

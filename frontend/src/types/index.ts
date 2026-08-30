@@ -263,7 +263,23 @@ export interface PatternTargetAnalysis {
 export interface WMPatternStructure {
   pattern_id: string;
   pattern_type: "W" | "M";
-  status: "FORMING" | "CONFIRMED" | "BREAKOUT_CONFIRMED" | "INVALIDATED" | "REJECTED";
+  status:
+    | "FORMING"
+    | "ACTIVE"
+    | "CONFIRMED"
+    | "BREAKOUT_FORMING"
+    | "BREAKDOWN_FORMING"
+    | "STRUCTURAL_BREAKOUT_CONFIRMED"
+    | "STRUCTURAL_BREAKDOWN_CONFIRMED"
+    | "BREAKOUT_CONFIRMED"
+    | "HIGH_CONFLUENCE_CONFIRMED"
+    | "TARGET_1_HIT"
+    | "TARGET_2_HIT"
+    | "SL_HIT"
+    | "FALSE_BREAKOUT"
+    | "FALSE BREAKOUT"
+    | "INVALIDATED"
+    | "REJECTED";
   s1_index: number;
   s1_price: number;
   s1_time: string;
@@ -286,6 +302,11 @@ export interface WMPatternStructure {
   rejection_reason?: string | null;
   prev_swing_sl_price?: number | null;
   prev_swing_sl_time?: string | null;
+  symbol?: string | null;
+  timeframe?: string | null;
+  target_1?: number | null;
+  target_2?: number | null;
+  stop_loss?: number | null;
 }
 
 export interface HighConfluenceAlert {
@@ -372,11 +393,12 @@ export interface MWBreakoutAlert {
   nearest_support?: number | null;
   nearest_resistance?: number | null;
   invalidation_level: number;
+  stop_loss?: number | null;
   quality_score: number;
   quality_breakdown?: Record<string, number>;
 
   // Lifecycle & status tracking
-  status: "TARGET OPEN" | "TARGET 1 HIT" | "TARGET 2 HIT" | "SL HIT" | "ACTIVE" | "TARGET_1_HIT" | "TARGET_2_HIT" | "INVALIDATED" | "EXPIRED";
+  status: "TARGET OPEN" | "TARGET 1 HIT" | "TARGET 2 HIT" | "SL HIT" | "FALSE BREAKOUT" | "FALSE_BREAKOUT" | "ACTIVE" | "TARGET_1_HIT" | "TARGET_2_HIT" | "INVALIDATED" | "EXPIRED";
   event_created_at: string;
   read: boolean;
 }

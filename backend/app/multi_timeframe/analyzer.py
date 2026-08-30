@@ -115,23 +115,29 @@ class SingleTimeframeAnalyzer:
         if sr_summary.major_resistance and sr_summary.major_resistance not in key_res:
             key_res.append(sr_summary.major_resistance)
 
-        wm_breaks, confirmed_wm_patterns, active_wm_pattern, _ = PrecisionBreakoutDetector.detect_wm_patterns(
-            candles=candles,
-            swings=swings,
-            trendlines=trendlines,
-            df_indicators=df_indicators,
-            symbol=symbol,
-            timeframe=timeframe,
-            atr_val=atr_val,
-            price_tolerance_atr=settings.W_M_SWING_TOLERANCE_ATR,
-            min_depth_atr=settings.MIN_PATTERN_DEPTH_ATR,
-            min_bar_spacing=settings.MIN_W_M_SWING_SEPARATION,
-            min_breakout_dist_atr=settings.MIN_BREAKOUT_DISTANCE_ATR,
-            key_supports=key_sups,
-            key_resistances=key_res
-        )
-        for wb in wm_breaks:
-            breaks.append(wb)
+        try:
+            wm_breaks, confirmed_wm_patterns, active_wm_pattern, _ = PrecisionBreakoutDetector.detect_wm_patterns(
+                candles=candles,
+                swings=swings,
+                trendlines=trendlines,
+                df_indicators=df_indicators,
+                symbol=symbol,
+                timeframe=timeframe,
+                atr_val=atr_val,
+                price_tolerance_atr=settings.W_M_SWING_TOLERANCE_ATR,
+                min_depth_atr=settings.MIN_PATTERN_DEPTH_ATR,
+                min_bar_spacing=settings.MIN_W_M_SWING_SEPARATION,
+                min_breakout_dist_atr=settings.MIN_BREAKOUT_DISTANCE_ATR,
+                key_supports=key_sups,
+                key_resistances=key_res
+            )
+            for wb in wm_breaks:
+                breaks.append(wb)
+        except Exception as wm_err:
+            import logging
+            logging.getLogger(__name__).error(f"[Analyzer] W/M detection error for {symbol} ({timeframe}): {wm_err}")
+            confirmed_wm_patterns = []
+            active_wm_pattern = None
 
         # If confirmed breakout / breakdown, register explicit SUPPORT_BREAK / RESISTANCE_BREAK with deterministic IDs
         last_candle = candles[-1]

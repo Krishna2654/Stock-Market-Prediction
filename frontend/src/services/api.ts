@@ -58,6 +58,12 @@ export const api = {
   },
 
   // Analysis
+  getFastOverview: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/analysis/fast-overview`);
+    if (!res.ok) throw new Error('Failed to fetch fast market overview');
+    return res.json();
+  },
+
   getOverview: async (): Promise<MultiTimeframeSynthesis[]> => {
     const res = await fetch(`${API_BASE}/analysis/overview`);
     if (!res.ok) throw new Error('Failed to fetch market overview');

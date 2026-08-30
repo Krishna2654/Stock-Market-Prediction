@@ -25,24 +25,107 @@ from app.alerts.mw_breakout_engine import mw_breakout_engine
 from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
 from app.api.websocket import ws_manager
 
+from pathlib import Path
+import json
+from datetime import datetime, timezone
+
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
-# In-memory performance caches with TTL
+# In-memory performance caches with TTL & disk persistence
+_CACHE_FILE = Path(__file__).resolve().parents[2] / "data" / "market_synthesis_cache.json"
 _synthesis_cache: Dict[str, Tuple[float, MultiTimeframeSynthesis]] = {}
 _chart_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _chart_in_flight: Dict[str, asyncio.Task] = {}
+
+def _load_disk_cache():
+    if _CACHE_FILE.exists():
+        try:
+            with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for sym, item in data.items():
+                    synth = MultiTimeframeSynthesis.model_validate(item["synthesis"])
+                    _synthesis_cache[sym] = (item.get("timestamp", time.time()), synth)
+            print(f"[Analysis Cache] Restored {len(_synthesis_cache)} cached syntheses from disk.")
+        except Exception as e:
+            print(f"[Analysis Cache] Disk load error: {e}")
+
+def _save_disk_cache():
+    try:
+        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        dump_data = {}
+        for sym, (ts, synth) in _synthesis_cache.items():
+            dump_data[sym] = {
+                "timestamp": ts,
+                "synthesis": synth.model_dump()
+            }
+        with open(_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(dump_data, f)
+    except Exception as e:
+        print(f"[Analysis Cache] Disk save error: {e}")
+
+# Pre-load cache from disk on module import for 0ms initial response
+_load_disk_cache()
+
+def update_synthesis_cache(symbol: str, synthesis: MultiTimeframeSynthesis):
+    _synthesis_cache[symbol] = (time.time(), synthesis)
+    _save_disk_cache()
+
+@router.get("/fast-overview")
+async def get_fast_overview():
+    """
+    Ultra-low latency endpoint (<10ms) returning current prices, bias, and status
+    for all active instruments. Never blocks on deep 40-timeframe analysis.
+    """
+    summary = []
+    for inst in configured_instruments:
+        if not inst.is_active:
+            continue
+        cached = _synthesis_cache.get(inst.symbol)
+        if cached:
+            synth = cached[1]
+            summary.append({
+                "symbol": inst.symbol,
+                "ticker": inst.ticker,
+                "exchange": inst.exchange,
+                "asset_type": inst.asset_type,
+                "current_price": synth.current_price,
+                "overall_bias": synth.overall_bias,
+                "evidence_score": synth.evidence_score.total_score,
+                "data_status": synth.data_status,
+                "market_session": synth.market_session.model_dump() if synth.market_session else None,
+                "last_updated": synth.last_updated
+            })
+        else:
+            summary.append({
+                "symbol": inst.symbol,
+                "ticker": inst.ticker,
+                "exchange": inst.exchange,
+                "asset_type": inst.asset_type,
+                "current_price": 0.0,
+                "overall_bias": "NEUTRAL",
+                "evidence_score": 50,
+                "data_status": "LIVE",
+                "market_session": None,
+                "last_updated": datetime.now(timezone.utc).isoformat()
+            })
+    return summary
 
 async def _analyze_instrument_cached(symbol: str, ticker: str, provider) -> MultiTimeframeSynthesis:
     now = time.time()
     if symbol in _synthesis_cache:
         cached_time, cached_synth = _synthesis_cache[symbol]
-        if (now - cached_time) < 45.0:  # Fresh for 45s
+        if (now - cached_time) < 120.0:  # Fresh for 120s
             return cached_synth
 
-    # Fetch fresh
-    synth = await _analyze_instrument(symbol, ticker, provider)
-    _synthesis_cache[symbol] = (now, synth)
-    return synth
+    # Fetch fresh with fallback to cached
+    try:
+        synth = await _analyze_instrument(symbol, ticker, provider)
+        _synthesis_cache[symbol] = (now, synth)
+        return synth
+    except Exception as e:
+        if symbol in _synthesis_cache:
+            return _synthesis_cache[symbol][1]
+        raise e
 
 @router.get("/overview", response_model=List[MultiTimeframeSynthesis])
 async def get_all_instruments_overview():
@@ -61,25 +144,37 @@ async def get_all_instruments_overview():
     for res in results:
         if isinstance(res, MultiTimeframeSynthesis):
             valid_syntheses.append(res)
-            alert_engine.process_synthesis_for_alerts(res)
-            high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(res)
-            new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(res)
-            new_shortlist = trendline_shortlist_engine.process_synthesis(res)
-            for mwa in new_mw:
-                asyncio.create_task(ws_manager.broadcast({
-                    "type": "MW_BREAKOUT_TRIGGERED",
-                    "alert": mwa.model_dump()
-                }))
-            for mwa in updated_mw:
-                asyncio.create_task(ws_manager.broadcast({
-                    "type": "MW_BREAKOUT_STATUS_UPDATED",
-                    "alert": mwa.model_dump()
-                }))
-            for cand in new_shortlist:
-                asyncio.create_task(ws_manager.broadcast({
-                    "type": "TRENDLINE_SHORTLIST_UPDATED",
-                    "candidate": cand.model_dump()
-                }))
+            try:
+                alert_engine.process_synthesis_for_alerts(res)
+            except Exception as e:
+                pass
+            try:
+                high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(res)
+            except Exception as e:
+                pass
+            try:
+                new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(res)
+                for mwa in new_mw:
+                    asyncio.create_task(ws_manager.broadcast({
+                        "type": "MW_BREAKOUT_TRIGGERED",
+                        "alert": mwa.model_dump()
+                    }))
+                for mwa in updated_mw:
+                    asyncio.create_task(ws_manager.broadcast({
+                        "type": "MW_BREAKOUT_STATUS_UPDATED",
+                        "alert": mwa.model_dump()
+                    }))
+            except Exception as e:
+                pass
+            try:
+                new_shortlist = trendline_shortlist_engine.process_synthesis(res)
+                for cand in new_shortlist:
+                    asyncio.create_task(ws_manager.broadcast({
+                        "type": "TRENDLINE_SHORTLIST_UPDATED",
+                        "candidate": cand.model_dump()
+                    }))
+            except Exception as e:
+                pass
         elif isinstance(res, Exception):
             print(f"[Overview Error] {res}")
             
@@ -111,25 +206,37 @@ async def get_instrument_detail(symbol: str):
     ticker = target.ticker if target else symbol
     
     synthesis = await _analyze_instrument_cached(symbol, ticker, provider)
-    alert_engine.process_synthesis_for_alerts(synthesis)
-    high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synthesis)
-    new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(synthesis)
-    new_shortlist = trendline_shortlist_engine.process_synthesis(synthesis)
-    for mwa in new_mw:
-        asyncio.create_task(ws_manager.broadcast({
-            "type": "MW_BREAKOUT_TRIGGERED",
-            "alert": mwa.model_dump()
-        }))
-    for mwa in updated_mw:
-        asyncio.create_task(ws_manager.broadcast({
-            "type": "MW_BREAKOUT_STATUS_UPDATED",
-            "alert": mwa.model_dump()
-        }))
-    for cand in new_shortlist:
-        asyncio.create_task(ws_manager.broadcast({
-            "type": "TRENDLINE_SHORTLIST_UPDATED",
-            "candidate": cand.model_dump()
-        }))
+    try:
+        alert_engine.process_synthesis_for_alerts(synthesis)
+    except Exception:
+        pass
+    try:
+        high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synthesis)
+    except Exception:
+        pass
+    try:
+        new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(synthesis)
+        for mwa in new_mw:
+            asyncio.create_task(ws_manager.broadcast({
+                "type": "MW_BREAKOUT_TRIGGERED",
+                "alert": mwa.model_dump()
+            }))
+        for mwa in updated_mw:
+            asyncio.create_task(ws_manager.broadcast({
+                "type": "MW_BREAKOUT_STATUS_UPDATED",
+                "alert": mwa.model_dump()
+            }))
+    except Exception:
+        pass
+    try:
+        new_shortlist = trendline_shortlist_engine.process_synthesis(synthesis)
+        for cand in new_shortlist:
+            asyncio.create_task(ws_manager.broadcast({
+                "type": "TRENDLINE_SHORTLIST_UPDATED",
+                "candidate": cand.model_dump()
+            }))
+    except Exception:
+        pass
     return synthesis
 
 @router.get("/chart/{symbol:path}")

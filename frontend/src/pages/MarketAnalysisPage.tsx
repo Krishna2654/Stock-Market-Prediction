@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   HighConfluenceAlert,
   InstrumentConfig,
@@ -23,16 +23,21 @@ import { HypotheticalSetup } from '../components/HypotheticalSetup';
 import { PredictiveScenarioBox } from '../components/PredictiveScenarioBox';
 import {
   ArrowLeft,
-  ArrowRight,
+  RefreshCw,
+  Clock,
+  Sparkles,
+  Layers,
+  Calendar,
+  Zap,
   TrendingUp,
+  TrendingDown,
+  Activity,
+  Sliders,
+  ArrowRight,
   Radio,
   ArrowUpRight,
   ArrowDownRight,
   Minus,
-  Sparkles,
-  Zap,
-  Activity,
-  Layers,
   ChevronDown,
   Bell,
   Target
@@ -42,11 +47,13 @@ interface MarketAnalysisPageProps {
   instruments: InstrumentConfig[];
   syntheses: Record<string, MultiTimeframeSynthesis>;
   highConfluenceAlerts: HighConfluenceAlert[];
-  mwBreakoutAlerts?: MWBreakoutAlert[];
+  mwBreakoutAlerts: MWBreakoutAlert[];
   onClearHighConfluenceAlerts?: () => void;
   onHighConfluenceAlertTriggered?: (alert: HighConfluenceAlert) => void;
   onOpenAlerts: () => void;
-  onOpenBacktest: () => void;
+  onOpenBacktest?: (alert: HighConfluenceAlert) => void;
+  onRefreshAll?: () => Promise<void>;
+  isRefreshing?: boolean;
 }
 
 export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
@@ -57,34 +64,46 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
   onClearHighConfluenceAlerts,
   onHighConfluenceAlertTriggered,
   onOpenAlerts,
-  onOpenBacktest
+  onOpenBacktest,
+  onRefreshAll,
+  isRefreshing
 }) => {
   const { symbol: rawSymbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Normalize symbol comparison (removes slashes, dashes, underscores, spaces)
+  const normSym = (s?: string) => (s || '').trim().toUpperCase().replace(/[/_\-\s]/g, '');
 
   // Decode symbol from URL parameter
   const decodedSymbol = rawSymbol ? decodeURIComponent(rawSymbol) : '';
 
-  // Match against configured instruments (case-insensitive & whitespace/dash flexible)
+  // Match against configured instruments (case-insensitive & whitespace/slash/dash flexible)
   const matchedInstrument = instruments.find(
     (i) =>
-      i.symbol.toUpperCase() === decodedSymbol.toUpperCase() ||
-      i.ticker.toUpperCase() === decodedSymbol.toUpperCase() ||
-      i.symbol.replace(/\s+/g, '').toUpperCase() === decodedSymbol.replace(/\s+/g, '').toUpperCase()
+      normSym(i.symbol) === normSym(decodedSymbol) ||
+      normSym(i.ticker) === normSym(decodedSymbol)
   );
 
   const activeSymbol = matchedInstrument ? matchedInstrument.symbol : (decodedSymbol || (instruments[0]?.symbol || 'NIFTY 50'));
   const currentSynthesis = syntheses[activeSymbol];
 
   // Central Single Source of Truth for Selected Timeframe (4H, 1H, 15M, 5M)
-  const [selectedTimeframe, setSelectedTimeframe] = useState<'4H' | '1H' | '15M' | '5M'>('15M');
+  const queryTf = searchParams.get('timeframe')?.toUpperCase();
+  const validTf = (queryTf === '4H' || queryTf === '1H' || queryTf === '15M' || queryTf === '5M') ? queryTf : '15M';
+  const [selectedTimeframe, setSelectedTimeframe] = useState<'4H' | '1H' | '15M' | '5M'>(validTf);
+
+  // Sync selectedTimeframe when URL query param changes
+  useEffect(() => {
+    const qTf = searchParams.get('timeframe')?.toUpperCase();
+    if (qTf === '4H' || qTf === '1H' || qTf === '15M' || qTf === '5M') {
+      setSelectedTimeframe(qTf);
+    }
+  }, [searchParams]);
 
   const [aiSummary, setAiSummary] = useState<AIAnalysisSummary | null>(null);
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [activeChartAlert, setActiveChartAlert] = useState<MWBreakoutAlert | null>(null);
-
-  // Normalize symbol comparison (removes slashes, dashes, underscores, spaces)
-  const normSym = (s?: string) => (s || '').trim().toUpperCase().replace(/[/_\-\s]/g, '');
 
   const currentMWAlert = (
     activeChartAlert && normSym(activeChartAlert.symbol) === normSym(activeSymbol) && activeChartAlert.timeframe === selectedTimeframe

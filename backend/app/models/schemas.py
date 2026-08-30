@@ -54,7 +54,12 @@ class PatternTargetAnalysis(BaseModel):
 class WMPatternStructure(BaseModel):
     pattern_id: str
     pattern_type: Literal["W", "M"]
-    status: Literal["FORMING", "ACTIVE", "CONFIRMED", "BREAKOUT_FORMING", "BREAKDOWN_FORMING", "STRUCTURAL_BREAKOUT_CONFIRMED", "STRUCTURAL_BREAKDOWN_CONFIRMED", "BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED", "TARGET_1_HIT", "INVALIDATED", "REJECTED"]
+    status: Literal[
+        "FORMING", "ACTIVE", "CONFIRMED", "BREAKOUT_FORMING", "BREAKDOWN_FORMING",
+        "STRUCTURAL_BREAKOUT_CONFIRMED", "STRUCTURAL_BREAKDOWN_CONFIRMED",
+        "BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED", "TARGET_1_HIT",
+        "TARGET_2_HIT", "SL_HIT", "FALSE_BREAKOUT", "FALSE BREAKOUT", "INVALIDATED", "REJECTED"
+    ]
     s1_index: int
     s1_price: float
     s1_time: str
@@ -77,6 +82,11 @@ class WMPatternStructure(BaseModel):
     rejection_reason: Optional[str] = None
     prev_swing_sl_price: Optional[float] = None
     prev_swing_sl_time: Optional[str] = None
+    symbol: Optional[str] = None
+    timeframe: Optional[str] = None
+    target_1: Optional[float] = None
+    target_2: Optional[float] = None
+    stop_loss: Optional[float] = None
 
 class StructureBreakEvent(BaseModel):
     id: str
@@ -381,7 +391,8 @@ class MWBreakoutAlert(BaseModel):
     quality_breakdown: Dict[str, int] = {}
 
     # Lifecycle & status tracking
-    status: Literal["TARGET OPEN", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT", "ACTIVE", "TARGET_1_HIT", "INVALIDATED", "EXPIRED"] = "TARGET OPEN"
+    status: Literal["TARGET OPEN", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT", "ACTIVE", "TARGET_1_HIT", "TARGET_2_HIT", "INVALIDATED", "EXPIRED"] = "TARGET OPEN"
+    stop_loss: Optional[float] = None
     event_created_at: str
     read: bool = False
 

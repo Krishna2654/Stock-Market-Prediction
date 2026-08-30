@@ -26,9 +26,15 @@ class SwingDetector:
         candles: List[Candle],
         swing_length: int = 5,
         confirmation_candles: int = 2,
-        min_atr_distance: float = 0.3
+        min_atr_distance: float = 0.3,
+        swing_left_bars: Optional[int] = None,
+        swing_right_bars: Optional[int] = None
     ) -> Tuple[List[SwingPoint], Optional[ProtectedSwing]]:
-        if len(candles) < (2 * swing_length + 1):
+        left_bars = swing_left_bars if swing_left_bars is not None else swing_length
+        right_bars = swing_right_bars if swing_right_bars is not None else swing_length
+        conf_candles = confirmation_candles
+
+        if len(candles) < (left_bars + right_bars + 1):
             return [], None
 
         highs = np.array([c.high for c in candles])
@@ -39,18 +45,18 @@ class SwingDetector:
         raw_swings: List[Dict] = []
 
         # Fractal peak / trough detection
-        for i in range(swing_length, n - swing_length):
+        for i in range(left_bars, n - right_bars):
             current_high = highs[i]
             current_low = lows[i]
 
             is_swing_high = (
-                np.all(current_high >= highs[i - swing_length:i]) and
-                np.all(current_high >= highs[i + 1:i + swing_length + 1])
+                np.all(current_high >= highs[i - left_bars:i]) and
+                np.all(current_high >= highs[i + 1:i + right_bars + 1])
             )
             
             is_swing_low = (
-                np.all(current_low <= lows[i - swing_length:i]) and
-                np.all(current_low <= lows[i + 1:i + swing_length + 1])
+                np.all(current_low <= lows[i - left_bars:i]) and
+                np.all(current_low <= lows[i + 1:i + right_bars + 1])
             )
 
             if is_swing_high:
@@ -59,8 +65,8 @@ class SwingDetector:
                     "timestamp": candles[i].timestamp,
                     "price": current_high,
                     "is_high": True,
-                    "confirmed": (i + swing_length + confirmation_candles) <= n,
-                    "confirmation_index": i + swing_length
+                    "confirmed": (i + right_bars + conf_candles) <= n,
+                    "confirmation_index": i + right_bars
                 })
             
             if is_swing_low:
@@ -69,8 +75,8 @@ class SwingDetector:
                     "timestamp": candles[i].timestamp,
                     "price": current_low,
                     "is_high": False,
-                    "confirmed": (i + swing_length + confirmation_candles) <= n,
-                    "confirmation_index": i + swing_length
+                    "confirmed": (i + right_bars + conf_candles) <= n,
+                    "confirmation_index": i + right_bars
                 })
 
         # Sort chronologically by candle index

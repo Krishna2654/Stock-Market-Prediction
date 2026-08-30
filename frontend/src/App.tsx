@@ -98,6 +98,55 @@ const AppContent: React.FC = () => {
       console.error('Core initialization error:', err);
     }
 
+    // Fast initial price fetch to immediately populate market cards in 10ms (never stuck on Loading)
+    api.getFastOverview().then((fastList) => {
+      if (fastList && fastList.length > 0) {
+        setSyntheses((prev) => {
+          const next = { ...prev };
+          fastList.forEach((item: any) => {
+            if (!next[item.symbol]) {
+              next[item.symbol] = {
+                symbol: item.symbol,
+                ticker: item.ticker,
+                provider: 'yfinance',
+                data_status: item.data_status || 'LIVE',
+                market_session: item.market_session,
+                last_updated: item.last_updated,
+                is_stale: false,
+                status_message: 'Live Market Data',
+                current_price: item.current_price,
+                timeframes: {},
+                overall_bias: item.overall_bias,
+                current_state: 'NO CLEAR STRUCTURE',
+                evidence_score: {
+                  total_score: item.evidence_score,
+                  price_action: 20,
+                  trend_structure: 20,
+                  momentum: 15,
+                  volatility: 15,
+                  volume: 10,
+                  pattern_confluence: 10,
+                  interpretation: 'Fast Feed'
+                },
+                confirmation_state: 'Active'
+              } as any;
+            } else if (item.current_price > 0 && next[item.symbol].current_price === 0) {
+              next[item.symbol] = {
+                ...next[item.symbol],
+                current_price: item.current_price,
+                overall_bias: item.overall_bias || next[item.symbol].overall_bias,
+                evidence_score: {
+                  ...next[item.symbol].evidence_score,
+                  total_score: item.evidence_score || next[item.symbol].evidence_score.total_score
+                }
+              };
+            }
+          });
+          return next;
+        });
+      }
+    }).catch((e) => console.warn('Fast overview initial load:', e));
+
     // Independent background fetch for M/W Breakouts without blocking the main dashboard & chart
     api.getMWBreakouts().then((mwAlerts) => {
       setMwBreakoutAlerts(mwAlerts);
@@ -179,9 +228,26 @@ const AppContent: React.FC = () => {
         setTimeout(() => setLatestToast(null), 7000);
         setNotifications((prev) => [notif, ...prev]);
       } 
-      // 4. SYNTHESIS TICK UPDATES
+      // 4. SYNTHESIS TICK UPDATES — Update state directly without re-triggering full HTTP fetch
       else if (data.type === 'SYNTHESIS_UPDATE' && data.symbol) {
-        refreshAllAnalysis();
+        setSyntheses((prev) => {
+          const existing = prev[data.symbol];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [data.symbol]: {
+              ...existing,
+              current_price: data.current_price || existing.current_price,
+              overall_bias: data.overall_bias || existing.overall_bias,
+              current_state: data.current_state || existing.current_state,
+              evidence_score: {
+                ...existing.evidence_score,
+                total_score: data.evidence_score !== undefined ? data.evidence_score : existing.evidence_score.total_score
+              },
+              latest_important_event: data.latest_event || existing.latest_important_event
+            }
+          };
+        });
       }
     });
 

@@ -174,28 +174,49 @@ class PrecisionBreakoutDetector:
         key_supports: List[float] = [],
         key_resistances: List[float] = [],
         quality_score: int = 85,
-        quality_breakdown: Dict[str, int] = {}
+        quality_breakdown: Dict[str, int] = {},
+        atr_val: float = 1.0,
+        sl_atr_buffer: Optional[float] = None,
+        target_extension: Optional[float] = None
     ) -> PatternTargetAnalysis:
         """
         Calculates objective technical measured-move targets, intermediate obstacles, and invalidation levels.
-        Stop Loss is independent of the neckline (previous significant swing low for W, previous swing high for M).
+        Stop Loss is strictly independent of the neckline (behind Point 2 / second swing with ATR buffer).
+        W: SL = Low 2 - ATR_buffer (strictly < neckline)
+        M: SL = High 2 + ATR_buffer (strictly > neckline)
         """
+        buffer_atr = sl_atr_buffer if sl_atr_buffer is not None else getattr(settings, "W_M_SL_ATR_BUFFER", 0.15)
+        extension = target_extension if target_extension is not None else getattr(settings, "W_M_TARGET_2_EXTENSION", 1.618)
+
         if pattern_type == "W":
             pattern_low = min(s1_price, s2_price)
             w_height = round(neckline_price - pattern_low, 2)
             measured_target = round(neckline_price + w_height, 2)
+
             # Stop Loss / Invalidation Close:
-            # Previous significant swing low relevant to the W setup (below W structure).
-            # Never set SL = neckline.
-            sl_val = prev_swing_sl if (prev_swing_sl is not None and prev_swing_sl <= pattern_low) else pattern_low
+            # Low 2 - ATR buffer (never neckline)
+            if prev_swing_sl is not None:
+                sl_val = prev_swing_sl
+            else:
+                sl_val = s2_price - (buffer_atr * atr_val)
+
+            # Ensure SL is strictly below neckline and below Low 2
+            if sl_val >= neckline_price or sl_val >= s2_price:
+                sl_val = min(s2_price, pattern_low) - max(0.01, buffer_atr * atr_val)
+
             invalidation_level = round(sl_val, 2)
+            if invalidation_level >= s2_price:
+                invalidation_level = round(s2_price - max(0.01, buffer_atr * atr_val), 2)
+            if invalidation_level >= neckline_price:
+                invalidation_level = round(min(invalidation_level, neckline_price - 0.01), 2)
+
             retest_level = round(neckline_price, 2)
 
             intervening = [r for r in key_resistances if neckline_price < r < (measured_target - 0.05)]
             nearest_obstacle = min(intervening) if intervening else None
 
-            above_target = [r for r in key_resistances if r >= (measured_target - 0.05)]
-            target_2 = min(above_target) if above_target else round(neckline_price + 2.0 * w_height, 2)
+            # Target 2 strictly uses measured move: Neckline + Height * extension (no S/R override)
+            target_2 = round(neckline_price + extension * w_height, 2)
 
             target_zone = f"₹{nearest_obstacle:.2f}–₹{measured_target:.2f}" if nearest_obstacle else f"₹{measured_target:.2f}"
 
@@ -224,18 +245,31 @@ class PrecisionBreakoutDetector:
             pattern_high = max(s1_price, s2_price)
             m_height = round(pattern_high - neckline_price, 2)
             measured_target = round(neckline_price - m_height, 2)
+
             # Stop Loss / Invalidation Close:
-            # Previous significant swing high relevant to the M setup (above M structure).
-            # Never set SL = neckline.
-            sl_val = prev_swing_sl if (prev_swing_sl is not None and prev_swing_sl >= pattern_high) else pattern_high
+            # High 2 + ATR buffer (never neckline)
+            if prev_swing_sl is not None:
+                sl_val = prev_swing_sl
+            else:
+                sl_val = s2_price + (buffer_atr * atr_val)
+
+            # Ensure SL is strictly above neckline and above High 2
+            if sl_val <= neckline_price or sl_val <= s2_price:
+                sl_val = max(s2_price, pattern_high) + max(0.01, buffer_atr * atr_val)
+
             invalidation_level = round(sl_val, 2)
+            if invalidation_level <= s2_price:
+                invalidation_level = round(s2_price + max(0.01, buffer_atr * atr_val), 2)
+            if invalidation_level <= neckline_price:
+                invalidation_level = round(max(invalidation_level, neckline_price + 0.01), 2)
+
             retest_level = round(neckline_price, 2)
 
             intervening = [s for s in key_supports if (measured_target + 0.05) < s < neckline_price]
             nearest_obstacle = max(intervening) if intervening else None
 
-            below_target = [s for s in key_supports if s <= (measured_target + 0.05)]
-            target_2 = max(below_target) if below_target else round(neckline_price - 2.0 * m_height, 2)
+            # Target 2 strictly uses measured move: Neckline - Height * extension (no S/R override)
+            target_2 = round(neckline_price - extension * m_height, 2)
 
             target_zone = f"₹{measured_target:.2f}–₹{nearest_obstacle:.2f}" if nearest_obstacle else f"₹{measured_target:.2f}"
 
@@ -394,6 +428,87 @@ class PrecisionBreakoutDetector:
         return events
 
     @classmethod
+    def _validate_preceding_trend(
+        cls,
+        candles: List[Candle],
+        swings: List[SwingPoint],
+        point_1: SwingPoint,
+        pattern_type: str,
+        atr_val: float,
+        timeframe: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Validates that a meaningful directional impulse/trend preceded Point 1.
+        W: Prior move must be a meaningful decline into Low 1.
+        M: Prior move must be a meaningful advance into High 1.
+        Displacement requirement: max(2.0 * ATR, point_1.price * pct_floor) scaled by timeframe.
+        Rejects sideways/consolidating structures prior to Point 1.
+        """
+        tf_clean = (timeframe or "1H").upper()
+        tf_multipliers = {
+            "5M": 0.002,   # 0.20% minimum displacement floor for 5M intraday
+            "15M": 0.004,  # 0.40% minimum displacement floor for 15M
+            "1H": 0.008,   # 0.80% minimum displacement floor for 1H
+            "4H": 0.012    # 1.20% minimum displacement floor for 4H/Daily
+        }
+        pct = tf_multipliers.get(tf_clean, 0.008)
+        min_disp = max(2.0 * atr_val, point_1.price * pct)
+
+        if pattern_type == "W":
+            prior_highs = [s for s in swings if s.is_high and s.index < point_1.index]
+            if prior_highs:
+                recent_highs = [h for h in prior_highs if (point_1.index - h.index) <= 60]
+                origin_high = max(recent_highs if recent_highs else prior_highs[-2:], key=lambda h: h.price)
+                disp = origin_high.price - point_1.price
+                if disp < min_disp:
+                    return False, f"Insufficient preceding downward move into Low 1 ({disp:.2f} < {min_disp:.2f})"
+
+                # Sideways consolidation check
+                prior_swings = [s for s in swings if origin_high.index <= s.index <= point_1.index]
+                if len(prior_swings) >= 4:
+                    spread = max(s.price for s in prior_swings) - min(s.price for s in prior_swings)
+                    if spread < 1.5 * atr_val:
+                        return False, "Preceding market structure is sideways/consolidating"
+                return True, "OK"
+            else:
+                start_idx = max(0, point_1.index - 35)
+                pre_candles = candles[start_idx:point_1.index]
+                if pre_candles:
+                    highest_pre = max(c.high for c in pre_candles)
+                    disp = highest_pre - point_1.price
+                    if disp < min_disp:
+                        return False, f"Insufficient preceding downward move into Low 1 ({disp:.2f} < {min_disp:.2f})"
+                    return True, "OK"
+                return False, "No preceding move detected before Low 1"
+
+        else:  # M Pattern
+            prior_lows = [s for s in swings if not s.is_high and s.index < point_1.index]
+            if prior_lows:
+                recent_lows = [l for l in prior_lows if (point_1.index - l.index) <= 60]
+                origin_low = min(recent_lows if recent_lows else prior_lows[-2:], key=lambda l: l.price)
+                disp = point_1.price - origin_low.price
+                if disp < min_disp:
+                    return False, f"Insufficient preceding upward move into High 1 ({disp:.2f} < {min_disp:.2f})"
+
+                # Sideways consolidation check
+                prior_swings = [s for s in swings if origin_low.index <= s.index <= point_1.index]
+                if len(prior_swings) >= 4:
+                    spread = max(s.price for s in prior_swings) - min(s.price for s in prior_swings)
+                    if spread < 1.5 * atr_val:
+                        return False, "Preceding market structure is sideways/consolidating"
+                return True, "OK"
+            else:
+                start_idx = max(0, point_1.index - 35)
+                pre_candles = candles[start_idx:point_1.index]
+                if pre_candles:
+                    lowest_pre = min(c.low for c in pre_candles)
+                    disp = point_1.price - lowest_pre
+                    if disp < min_disp:
+                        return False, f"Insufficient preceding upward move into High 1 ({disp:.2f} < {min_disp:.2f})"
+                    return True, "OK"
+                return False, "No preceding move detected before High 1"
+
+    @classmethod
     def detect_wm_patterns(
         cls,
         candles: List[Candle],
@@ -460,9 +575,10 @@ class PrecisionBreakoutDetector:
                     ))
                     continue
 
-                # Wave structure check: No intervening high between H1 and H2 higher than H1/H2
+                # Wave structure check: Structural adjacency rule
+                # There must NOT be an intervening swing high between High 1 and High 2
                 inter_highs = [h for h in high_swings if h1.index < h.index < h2.index]
-                if any(h.price > max(h1.price, h2.price) for h in inter_highs):
+                if len(inter_highs) > 0:
                     debug_candidates.append(WMPatternStructure(
                         pattern_id=f"{symbol}_{timeframe}_M_{h1.timestamp}_{h2.timestamp}",
                         pattern_type="M",
@@ -471,11 +587,13 @@ class PrecisionBreakoutDetector:
                         neckline_index=h1.index + 1, neckline_price=0.0, neckline_time="",
                         s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
                         pattern_height=0.0, depth_atr=0.0, symmetry_atr=0.0, bar_separation=bar_sep,
-                        quality_score=0, rejection_reason="Intervening swing high exceeded M peaks (invalid double top)"
+                        quality_score=0, rejection_reason="Intervening structural swing high between High 1 and High 2 (multi-wave structure)",
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
-                if len(inter_highs) > 1:
+                # Neckline check: Exactly ONE intermediate structural low (neckline) between High 1 and High 2
+                if len(inter_lows) > 1:
                     debug_candidates.append(WMPatternStructure(
                         pattern_id=f"{symbol}_{timeframe}_M_{h1.timestamp}_{h2.timestamp}",
                         pattern_type="M",
@@ -484,7 +602,26 @@ class PrecisionBreakoutDetector:
                         neckline_index=h1.index + 1, neckline_price=0.0, neckline_time="",
                         s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
                         pattern_height=0.0, depth_atr=0.0, symmetry_atr=0.0, bar_separation=bar_sep,
-                        quality_score=0, rejection_reason="Too many internal high swings between High 1 and High 2"
+                        quality_score=0, rejection_reason="Multiple intermediate structural lows between High 1 and High 2 (competing necklines / multi-wave structure)",
+                        symbol=symbol, timeframe=timeframe
+                    ))
+                    continue
+
+                # Preceding trend validation leading into High 1 (meaningful upward move)
+                is_valid_trend, trend_reason = cls._validate_preceding_trend(
+                    candles=candles, swings=swings, point_1=h1, pattern_type="M", atr_val=atr_val, timeframe=timeframe
+                )
+                if not is_valid_trend:
+                    debug_candidates.append(WMPatternStructure(
+                        pattern_id=f"{symbol}_{timeframe}_M_{h1.timestamp}_{h2.timestamp}",
+                        pattern_type="M",
+                        status="REJECTED",
+                        s1_index=h1.index, s1_price=round(h1.price, 2), s1_time=h1.timestamp,
+                        neckline_index=h1.index + 1, neckline_price=0.0, neckline_time="",
+                        s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
+                        pattern_height=0.0, depth_atr=0.0, symmetry_atr=0.0, bar_separation=bar_sep,
+                        quality_score=0, rejection_reason=trend_reason,
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
@@ -499,45 +636,24 @@ class PrecisionBreakoutDetector:
                         neckline_index=h1.index + 1, neckline_price=0.0, neckline_time="",
                         s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
                         pattern_height=0.0, depth_atr=0.0, symmetry_atr=0.0, bar_separation=bar_sep,
-                        quality_score=0, rejection_reason="Pattern formed after extended 5-wave movement (>= 3 consecutive higher highs prior to H1)"
+                        quality_score=0, rejection_reason="Pattern formed after extended 5-wave movement (>= 3 consecutive higher highs prior to H1)",
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
-                # Identify Previous Significant Swing High above/relevant to M setup
-                higher_priors = [s for s in prior_highs if s.price >= max(h1.price, h2.price)]
-                if higher_priors:
-                    prev_high = higher_priors[-1]
-                    m_sl_val = prev_high.price
-                    m_sl_time = prev_high.timestamp
-                elif prior_highs:
-                    prev_high = prior_highs[-1]
-                    m_sl_val = max(prev_high.price, h1.price, h2.price)
-                    m_sl_time = prev_high.timestamp if prev_high.price >= max(h1.price, h2.price) else (h1.timestamp if h1.price >= h2.price else h2.timestamp)
-                else:
-                    m_sl_val = max(h1.price, h2.price)
-                    m_sl_time = h1.timestamp if h1.price >= h2.price else h2.timestamp
+                # Point 2 = High 2. SL = High 2 + configurable ATR buffer (strictly > neckline)
+                sl_buf = getattr(settings, "W_M_SL_ATR_BUFFER", 0.15)
+                m_sl_val = round(h2.price + (sl_buf * atr_val), 2)
+                m_sl_time = h2.timestamp
 
                 mid_trough = min(inter_lows, key=lambda l: l.price)
                 neckline = mid_trough.price
 
                 # Symmetry & Depth
-                diff_atr = abs(h1.price - h2.price) / max(0.0001, atr_val)
-                pattern_depth = min(h1.price, h2.price) - neckline
+                diff_price = abs(h1.price - h2.price)
+                diff_atr = diff_price / max(0.0001, atr_val)
+                pattern_depth = max(h1.price, h2.price) - neckline
                 depth_atr = pattern_depth / max(0.0001, atr_val)
-
-                if diff_atr > price_tolerance_atr:
-                    debug_candidates.append(WMPatternStructure(
-                        pattern_id=f"{symbol}_{timeframe}_M_{h1.timestamp}_{h2.timestamp}",
-                        pattern_type="M",
-                        status="REJECTED",
-                        s1_index=h1.index, s1_price=round(h1.price, 2), s1_time=h1.timestamp,
-                        neckline_index=mid_trough.index, neckline_price=round(neckline, 2), neckline_time=mid_trough.timestamp,
-                        s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
-                        pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
-                        bar_separation=bar_sep, quality_score=40,
-                        rejection_reason=f"Highs too asymmetric ({diff_atr:.2f} ATR > {price_tolerance_atr:.2f} ATR)"
-                    ))
-                    continue
 
                 if depth_atr < min_depth_atr:
                     debug_candidates.append(WMPatternStructure(
@@ -549,7 +665,67 @@ class PrecisionBreakoutDetector:
                         s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
                         pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
                         bar_separation=bar_sep, quality_score=45,
-                        rejection_reason=f"Insufficient neckline depth ({depth_atr:.2f} ATR < {min_depth_atr:.2f} ATR)"
+                        rejection_reason=f"Insufficient neckline depth ({depth_atr:.2f} ATR < {min_depth_atr:.2f} ATR)",
+                        symbol=symbol, timeframe=timeframe
+                    ))
+                    continue
+
+                # Individual leg amplitude requirement: BOTH legs must independently satisfy >= max(1.2 * ATR, h1.price * pct)
+                tf_clean_m = (timeframe or "1H").upper()
+                leg_pct_map_m = {
+                    "5M": 0.001,   # 0.10% on 5M
+                    "15M": 0.002,  # 0.20% on 15M
+                    "1H": 0.004,   # 0.40% on 1H
+                    "4H": 0.008    # 0.80% on 4H/Daily
+                }
+                min_leg_amp = max(1.2 * atr_val, h1.price * leg_pct_map_m.get(tf_clean_m, 0.004))
+                leg1_amp = h1.price - neckline
+                leg2_amp = h2.price - neckline
+
+                if leg1_amp < min_leg_amp:
+                    debug_candidates.append(WMPatternStructure(
+                        pattern_id=f"{symbol}_{timeframe}_M_{h1.timestamp}_{h2.timestamp}",
+                        pattern_type="M",
+                        status="REJECTED",
+                        s1_index=h1.index, s1_price=round(h1.price, 2), s1_time=h1.timestamp,
+                        neckline_index=mid_trough.index, neckline_price=round(neckline, 2), neckline_time=mid_trough.timestamp,
+                        s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
+                        pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
+                        bar_separation=bar_sep, quality_score=35,
+                        rejection_reason=f"Leg 1 amplitude too small ({leg1_amp:.2f} < {min_leg_amp:.2f})",
+                        symbol=symbol, timeframe=timeframe
+                    ))
+                    continue
+
+                if leg2_amp < min_leg_amp:
+                    debug_candidates.append(WMPatternStructure(
+                        pattern_id=f"{symbol}_{timeframe}_M_{h1.timestamp}_{h2.timestamp}",
+                        pattern_type="M",
+                        status="REJECTED",
+                        s1_index=h1.index, s1_price=round(h1.price, 2), s1_time=h1.timestamp,
+                        neckline_index=mid_trough.index, neckline_price=round(neckline, 2), neckline_time=mid_trough.timestamp,
+                        s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
+                        pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
+                        bar_separation=bar_sep, quality_score=35,
+                        rejection_reason=f"Leg 2 amplitude too small ({leg2_amp:.2f} < {min_leg_amp:.2f})",
+                        symbol=symbol, timeframe=timeframe
+                    ))
+                    continue
+
+                # Tightened symmetry: max(1.2 * ATR, 1.5% of Point 1 price)
+                max_allowed_diff = max(1.2 * atr_val, h1.price * 0.015)
+                if diff_price > max_allowed_diff:
+                    debug_candidates.append(WMPatternStructure(
+                        pattern_id=f"{symbol}_{timeframe}_M_{h1.timestamp}_{h2.timestamp}",
+                        pattern_type="M",
+                        status="REJECTED",
+                        s1_index=h1.index, s1_price=round(h1.price, 2), s1_time=h1.timestamp,
+                        neckline_index=mid_trough.index, neckline_price=round(neckline, 2), neckline_time=mid_trough.timestamp,
+                        s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
+                        pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
+                        bar_separation=bar_sep, quality_score=40,
+                        rejection_reason=f"Highs too asymmetric ({diff_price:.2f} > {max_allowed_diff:.2f})",
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
@@ -564,10 +740,12 @@ class PrecisionBreakoutDetector:
                     breakout_close=neckline - min_breakout_dist,
                     prev_swing_sl=m_sl_val,
                     key_supports=key_supports,
-                    key_resistances=key_resistances
+                    key_resistances=key_resistances,
+                    atr_val=atr_val,
+                    sl_atr_buffer=sl_buf
                 )
 
-                # Scan for confirmed breakout candle strictly after H2 (tight fresh window)
+                # Scan for confirmed breakout candle strictly after Point 2 (H2)
                 structural_break_idx: Optional[int] = None
                 structural_break_time: Optional[str] = None
                 structural_break_close: Optional[float] = None
@@ -577,6 +755,9 @@ class PrecisionBreakoutDetector:
                 breakout_vol: float = 1.25
                 is_forming = False
                 is_invalidated = False
+                is_false_breakout = False
+                is_target_1_hit = False
+                is_target_2_hit = False
 
                 relevant_tls = [
                     t for t in trendlines
@@ -600,8 +781,9 @@ class PrecisionBreakoutDetector:
 
                     # Completed candle close check
                     if structural_break_idx is None:
-                        # Structural Breakdown condition: candle close below neckline
-                        if c.close <= (neckline - min_breakout_dist) or c.close < neckline:
+                        # Structural Breakdown condition: candle close below neckline (wick-only does NOT count)
+                        prev_c = candles[i - 1]
+                        if c.close <= (neckline - min_breakout_dist) and prev_c.close >= (neckline - min_breakout_dist * 0.5):
                             # Reject if candle already moved substantially past Target 1 area
                             if c.close <= (neckline - 0.75 * pattern_depth):
                                 already_moved_too_far = True
@@ -643,9 +825,22 @@ class PrecisionBreakoutDetector:
                             if ema_broken and tl_broken and rel_vol >= 1.15:
                                 is_high_confluence = True
                     else:
-                        # Check invalidation: subsequent candle closed beyond Stop Loss (previous swing high, NOT neckline!)
-                        if c.close > target_analysis.invalidation_level:
+                        # Subsequent candle evaluation:
+                        # 1. Target 2 reached (terminal winner)
+                        if c.low <= target_analysis.target_2:
+                            is_target_2_hit = True
+                            break
+                        # 2. Target 1 reached
+                        elif c.low <= target_analysis.measured_target:
+                            is_target_1_hit = True
+                        # 3. Stop Loss breach (only if Target 1 not reached)
+                        elif not is_target_1_hit and (c.high >= target_analysis.invalidation_level or c.close >= target_analysis.invalidation_level):
                             is_invalidated = True
+                            break
+                        # 4. Re-close back above neckline before Target 1 reached (FALSE BREAKOUT)
+                        elif not is_target_1_hit and c.close > neckline:
+                            is_false_breakout = True
+                            break
 
                 if already_moved_too_far:
                     debug_candidates.append(WMPatternStructure(
@@ -657,7 +852,8 @@ class PrecisionBreakoutDetector:
                         s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
                         pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
                         bar_separation=bar_sep, quality_score=0,
-                        rejection_reason="Breakout candle already moved substantially prior to confirmation (exceeded 75% of pattern depth)"
+                        rejection_reason="Breakout candle already moved substantially prior to confirmation (exceeded 75% of pattern depth)",
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
@@ -679,26 +875,32 @@ class PrecisionBreakoutDetector:
                 target_analysis.quality_breakdown = q_breakdown
 
                 # Determine precise pattern lifecycle status
-                if is_invalidated:
-                    status = "INVALIDATED"
+                if is_target_2_hit:
+                    pat_status = "TARGET_2_HIT"
+                elif is_target_1_hit:
+                    pat_status = "TARGET_1_HIT"
+                elif is_invalidated:
+                    pat_status = "INVALIDATED"
+                elif is_false_breakout:
+                    pat_status = "FALSE_BREAKOUT"
                 elif structural_break_idx is not None:
                     if is_high_confluence and q_score >= 75:
-                        status = "HIGH_CONFLUENCE_CONFIRMED"
+                        pat_status = "HIGH_CONFLUENCE_CONFIRMED"
                     else:
-                        status = "BREAKOUT_CONFIRMED"
+                        pat_status = "BREAKOUT_CONFIRMED"
                 elif is_forming:
-                    status = "BREAKDOWN_FORMING"
+                    pat_status = "BREAKDOWN_FORMING"
                 else:
-                    status = "CONFIRMED"
+                    pat_status = "CONFIRMED"
 
                 m_pattern_obj = WMPatternStructure(
                     pattern_id=pattern_id,
                     pattern_type="M",
-                    status=status,
+                    status=pat_status,
                     s1_index=h1.index, s1_price=round(h1.price, 2), s1_time=h1.timestamp,
                     neckline_index=mid_trough.index, neckline_price=round(neckline, 2), neckline_time=mid_trough.timestamp,
                     s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
-                    pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
+                    pattern_height=round(target_analysis.pattern_height, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
                     bar_separation=bar_sep, quality_score=q_score,
                     breakout_candle_index=structural_break_idx,
                     breakout_candle_time=structural_break_time,
@@ -706,7 +908,12 @@ class PrecisionBreakoutDetector:
                     target_analysis=target_analysis,
                     is_active=False,
                     prev_swing_sl_price=round(m_sl_val, 2),
-                    prev_swing_sl_time=m_sl_time
+                    prev_swing_sl_time=m_sl_time,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    target_1=round(target_analysis.measured_target, 2),
+                    target_2=round(target_analysis.target_2, 2) if target_analysis.target_2 else None,
+                    stop_loss=round(target_analysis.invalidation_level, 2)
                 )
 
                 confirmed_patterns.append(m_pattern_obj)
@@ -783,9 +990,10 @@ class PrecisionBreakoutDetector:
                     ))
                     continue
 
-                # Wave structure check: No intervening low between L1 and L2 lower than L1/L2
+                # Wave structure check: Structural adjacency rule
+                # There must NOT be an intervening swing low between Low 1 and Low 2
                 inter_lows = [l for l in low_swings if l1.index < l.index < l2.index]
-                if any(l.price < min(l1.price, l2.price) for l in inter_lows):
+                if len(inter_lows) > 0:
                     debug_candidates.append(WMPatternStructure(
                         pattern_id=f"{symbol}_{timeframe}_W_{l1.timestamp}_{l2.timestamp}",
                         pattern_type="W",
@@ -794,11 +1002,13 @@ class PrecisionBreakoutDetector:
                         neckline_index=l1.index + 1, neckline_price=0.0, neckline_time="",
                         s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
                         pattern_height=0.0, depth_atr=0.0, symmetry_atr=0.0, bar_separation=bar_sep,
-                        quality_score=0, rejection_reason="Intervening swing low lower than W bottoms (invalid double bottom)"
+                        quality_score=0, rejection_reason="Intervening structural swing low between Low 1 and Low 2 (multi-wave structure)",
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
-                if len(inter_lows) > 1:
+                # Neckline check: Exactly ONE intermediate structural high (neckline) between Low 1 and Low 2
+                if len(inter_highs) > 1:
                     debug_candidates.append(WMPatternStructure(
                         pattern_id=f"{symbol}_{timeframe}_W_{l1.timestamp}_{l2.timestamp}",
                         pattern_type="W",
@@ -807,7 +1017,26 @@ class PrecisionBreakoutDetector:
                         neckline_index=l1.index + 1, neckline_price=0.0, neckline_time="",
                         s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
                         pattern_height=0.0, depth_atr=0.0, symmetry_atr=0.0, bar_separation=bar_sep,
-                        quality_score=0, rejection_reason="Too many internal low swings between Low 1 and Low 2"
+                        quality_score=0, rejection_reason="Multiple intermediate structural highs between Low 1 and Low 2 (competing necklines / multi-wave structure)",
+                        symbol=symbol, timeframe=timeframe
+                    ))
+                    continue
+
+                # Preceding trend validation leading into Low 1 (meaningful downward move)
+                is_valid_trend, trend_reason = cls._validate_preceding_trend(
+                    candles=candles, swings=swings, point_1=l1, pattern_type="W", atr_val=atr_val, timeframe=timeframe
+                )
+                if not is_valid_trend:
+                    debug_candidates.append(WMPatternStructure(
+                        pattern_id=f"{symbol}_{timeframe}_W_{l1.timestamp}_{l2.timestamp}",
+                        pattern_type="W",
+                        status="REJECTED",
+                        s1_index=l1.index, s1_price=round(l1.price, 2), s1_time=l1.timestamp,
+                        neckline_index=l1.index + 1, neckline_price=0.0, neckline_time="",
+                        s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
+                        pattern_height=0.0, depth_atr=0.0, symmetry_atr=0.0, bar_separation=bar_sep,
+                        quality_score=0, rejection_reason=trend_reason,
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
@@ -822,44 +1051,23 @@ class PrecisionBreakoutDetector:
                         neckline_index=l1.index + 1, neckline_price=0.0, neckline_time="",
                         s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
                         pattern_height=0.0, depth_atr=0.0, symmetry_atr=0.0, bar_separation=bar_sep,
-                        quality_score=0, rejection_reason="Pattern formed after extended 5-wave movement (>= 3 consecutive lower lows prior to L1)"
+                        quality_score=0, rejection_reason="Pattern formed after extended 5-wave movement (>= 3 consecutive lower lows prior to L1)",
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
-                # Identify Previous Significant Swing Low below/relevant to W setup
-                lower_priors = [s for s in prior_lows if s.price <= min(l1.price, l2.price)]
-                if lower_priors:
-                    prev_low = lower_priors[-1]
-                    w_sl_val = prev_low.price
-                    w_sl_time = prev_low.timestamp
-                elif prior_lows:
-                    prev_low = prior_lows[-1]
-                    w_sl_val = min(prev_low.price, l1.price, l2.price)
-                    w_sl_time = prev_low.timestamp if prev_low.price <= min(l1.price, l2.price) else (l1.timestamp if l1.price <= l2.price else l2.timestamp)
-                else:
-                    w_sl_val = min(l1.price, l2.price)
-                    w_sl_time = l1.timestamp if l1.price <= l2.price else l2.timestamp
+                # Point 2 = Low 2. SL = Low 2 - configurable ATR buffer (strictly < neckline)
+                sl_buf = getattr(settings, "W_M_SL_ATR_BUFFER", 0.15)
+                w_sl_val = round(l2.price - (sl_buf * atr_val), 2)
+                w_sl_time = l2.timestamp
 
                 mid_peak = max(inter_highs, key=lambda h: h.price)
                 neckline = mid_peak.price
 
-                diff_atr = abs(l1.price - l2.price) / max(0.0001, atr_val)
-                pattern_depth = neckline - max(l1.price, l2.price)
+                diff_price = abs(l1.price - l2.price)
+                diff_atr = diff_price / max(0.0001, atr_val)
+                pattern_depth = neckline - min(l1.price, l2.price)
                 depth_atr = pattern_depth / max(0.0001, atr_val)
-
-                if diff_atr > price_tolerance_atr:
-                    debug_candidates.append(WMPatternStructure(
-                        pattern_id=f"{symbol}_{timeframe}_W_{l1.timestamp}_{l2.timestamp}",
-                        pattern_type="W",
-                        status="REJECTED",
-                        s1_index=l1.index, s1_price=round(l1.price, 2), s1_time=l1.timestamp,
-                        neckline_index=mid_peak.index, neckline_price=round(neckline, 2), neckline_time=mid_peak.timestamp,
-                        s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
-                        pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
-                        bar_separation=bar_sep, quality_score=40,
-                        rejection_reason=f"Lows too asymmetric ({diff_atr:.2f} ATR > {price_tolerance_atr:.2f} ATR)"
-                    ))
-                    continue
 
                 if depth_atr < min_depth_atr:
                     debug_candidates.append(WMPatternStructure(
@@ -871,7 +1079,67 @@ class PrecisionBreakoutDetector:
                         s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
                         pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
                         bar_separation=bar_sep, quality_score=45,
-                        rejection_reason=f"Insufficient neckline depth ({depth_atr:.2f} ATR < {min_depth_atr:.2f} ATR)"
+                        rejection_reason=f"Insufficient neckline depth ({depth_atr:.2f} ATR < {min_depth_atr:.2f} ATR)",
+                        symbol=symbol, timeframe=timeframe
+                    ))
+                    continue
+
+                # Individual leg amplitude requirement: BOTH legs must independently satisfy >= max(1.2 * ATR, l1.price * pct)
+                tf_clean_w = (timeframe or "1H").upper()
+                leg_pct_map_w = {
+                    "5M": 0.001,   # 0.10% on 5M
+                    "15M": 0.002,  # 0.20% on 15M
+                    "1H": 0.004,   # 0.40% on 1H
+                    "4H": 0.008    # 0.80% on 4H/Daily
+                }
+                min_leg_amp = max(1.2 * atr_val, l1.price * leg_pct_map_w.get(tf_clean_w, 0.004))
+                leg1_amp = neckline - l1.price
+                leg2_amp = neckline - l2.price
+
+                if leg1_amp < min_leg_amp:
+                    debug_candidates.append(WMPatternStructure(
+                        pattern_id=f"{symbol}_{timeframe}_W_{l1.timestamp}_{l2.timestamp}",
+                        pattern_type="W",
+                        status="REJECTED",
+                        s1_index=l1.index, s1_price=round(l1.price, 2), s1_time=l1.timestamp,
+                        neckline_index=mid_peak.index, neckline_price=round(neckline, 2), neckline_time=mid_peak.timestamp,
+                        s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
+                        pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
+                        bar_separation=bar_sep, quality_score=35,
+                        rejection_reason=f"Leg 1 amplitude too small ({leg1_amp:.2f} < {min_leg_amp:.2f})",
+                        symbol=symbol, timeframe=timeframe
+                    ))
+                    continue
+
+                if leg2_amp < min_leg_amp:
+                    debug_candidates.append(WMPatternStructure(
+                        pattern_id=f"{symbol}_{timeframe}_W_{l1.timestamp}_{l2.timestamp}",
+                        pattern_type="W",
+                        status="REJECTED",
+                        s1_index=l1.index, s1_price=round(l1.price, 2), s1_time=l1.timestamp,
+                        neckline_index=mid_peak.index, neckline_price=round(neckline, 2), neckline_time=mid_peak.timestamp,
+                        s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
+                        pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
+                        bar_separation=bar_sep, quality_score=35,
+                        rejection_reason=f"Leg 2 amplitude too small ({leg2_amp:.2f} < {min_leg_amp:.2f})",
+                        symbol=symbol, timeframe=timeframe
+                    ))
+                    continue
+
+                # Tightened symmetry: max(1.2 * ATR, 1.5% of Point 1 price)
+                max_allowed_diff = max(1.2 * atr_val, l1.price * 0.015)
+                if diff_price > max_allowed_diff:
+                    debug_candidates.append(WMPatternStructure(
+                        pattern_id=f"{symbol}_{timeframe}_W_{l1.timestamp}_{l2.timestamp}",
+                        pattern_type="W",
+                        status="REJECTED",
+                        s1_index=l1.index, s1_price=round(l1.price, 2), s1_time=l1.timestamp,
+                        neckline_index=mid_peak.index, neckline_price=round(neckline, 2), neckline_time=mid_peak.timestamp,
+                        s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
+                        pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
+                        bar_separation=bar_sep, quality_score=40,
+                        rejection_reason=f"Lows too asymmetric ({diff_price:.2f} > {max_allowed_diff:.2f})",
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
@@ -886,9 +1154,12 @@ class PrecisionBreakoutDetector:
                     breakout_close=neckline + min_breakout_dist,
                     prev_swing_sl=w_sl_val,
                     key_supports=key_supports,
-                    key_resistances=key_resistances
+                    key_resistances=key_resistances,
+                    atr_val=atr_val,
+                    sl_atr_buffer=sl_buf
                 )
 
+                # Scan for confirmed breakout candle strictly after Point 2 (L2)
                 structural_break_idx = None
                 structural_break_time = None
                 structural_break_close = None
@@ -898,6 +1169,9 @@ class PrecisionBreakoutDetector:
                 breakout_vol = 1.25
                 is_forming = False
                 is_invalidated = False
+                is_false_breakout = False
+                is_target_1_hit = False
+                is_target_2_hit = False
 
                 relevant_tls = [
                     t for t in trendlines
@@ -919,9 +1193,9 @@ class PrecisionBreakoutDetector:
                         continue
 
                     if structural_break_idx is None:
-                        # Structural Breakout condition: candle close above neckline
-                        if c.close >= (neckline + min_breakout_dist) or c.close > neckline:
-                            # Reject if candle already moved substantially past Target 1 area
+                        # Structural Breakout condition: candle close above neckline (wick-only does NOT count)
+                        prev_c = candles[i - 1]
+                        if c.close >= (neckline + min_breakout_dist) and prev_c.close <= (neckline + min_breakout_dist * 0.5):
                             if c.close >= (neckline + 0.75 * pattern_depth):
                                 already_moved_too_far = True
                                 break
@@ -961,9 +1235,22 @@ class PrecisionBreakoutDetector:
                             if ema_broken and tl_broken and rel_vol >= 1.15:
                                 is_high_confluence = True
                     else:
-                        # Check invalidation: subsequent candle closed beyond Stop Loss (previous swing low, NOT neckline!)
-                        if c.close < target_analysis.invalidation_level:
+                        # Subsequent candle evaluation:
+                        # 1. Target 2 reached (terminal winner)
+                        if c.high >= target_analysis.target_2:
+                            is_target_2_hit = True
+                            break
+                        # 2. Target 1 reached
+                        elif c.high >= target_analysis.measured_target:
+                            is_target_1_hit = True
+                        # 3. Stop Loss breach (only if Target 1 not reached)
+                        elif not is_target_1_hit and (c.low <= target_analysis.invalidation_level or c.close <= target_analysis.invalidation_level):
                             is_invalidated = True
+                            break
+                        # 4. Re-close back below neckline before Target 1 reached (FALSE BREAKOUT)
+                        elif not is_target_1_hit and c.close < neckline:
+                            is_false_breakout = True
+                            break
 
                 if already_moved_too_far:
                     debug_candidates.append(WMPatternStructure(
@@ -975,7 +1262,8 @@ class PrecisionBreakoutDetector:
                         s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
                         pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
                         bar_separation=bar_sep, quality_score=0,
-                        rejection_reason="Breakout candle already moved substantially prior to confirmation (exceeded 75% of pattern depth)"
+                        rejection_reason="Breakout candle already moved substantially prior to confirmation (exceeded 75% of pattern depth)",
+                        symbol=symbol, timeframe=timeframe
                     ))
                     continue
 
@@ -995,26 +1283,32 @@ class PrecisionBreakoutDetector:
                 target_analysis.pattern_quality_score = q_score
                 target_analysis.quality_breakdown = q_breakdown
 
-                if is_invalidated:
-                    status = "INVALIDATED"
+                if is_target_2_hit:
+                    pat_status = "TARGET_2_HIT"
+                elif is_target_1_hit:
+                    pat_status = "TARGET_1_HIT"
+                elif is_invalidated:
+                    pat_status = "INVALIDATED"
+                elif is_false_breakout:
+                    pat_status = "FALSE_BREAKOUT"
                 elif structural_break_idx is not None:
                     if is_high_confluence and q_score >= 75:
-                        status = "HIGH_CONFLUENCE_CONFIRMED"
+                        pat_status = "HIGH_CONFLUENCE_CONFIRMED"
                     else:
-                        status = "BREAKOUT_CONFIRMED"
+                        pat_status = "BREAKOUT_CONFIRMED"
                 elif is_forming:
-                    status = "BREAKOUT_FORMING"
+                    pat_status = "BREAKOUT_FORMING"
                 else:
-                    status = "CONFIRMED"
+                    pat_status = "CONFIRMED"
 
                 w_pattern_obj = WMPatternStructure(
                     pattern_id=pattern_id,
                     pattern_type="W",
-                    status=status,
+                    status=pat_status,
                     s1_index=l1.index, s1_price=round(l1.price, 2), s1_time=l1.timestamp,
                     neckline_index=mid_peak.index, neckline_price=round(neckline, 2), neckline_time=mid_peak.timestamp,
                     s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
-                    pattern_height=round(pattern_depth, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
+                    pattern_height=round(target_analysis.pattern_height, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
                     bar_separation=bar_sep, quality_score=q_score,
                     breakout_candle_index=structural_break_idx,
                     breakout_candle_time=structural_break_time,
@@ -1022,7 +1316,12 @@ class PrecisionBreakoutDetector:
                     target_analysis=target_analysis,
                     is_active=False,
                     prev_swing_sl_price=round(w_sl_val, 2),
-                    prev_swing_sl_time=w_sl_time
+                    prev_swing_sl_time=w_sl_time,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    target_1=round(target_analysis.measured_target, 2),
+                    target_2=round(target_analysis.target_2, 2) if target_analysis.target_2 else None,
+                    stop_loss=round(target_analysis.invalidation_level, 2)
                 )
 
                 confirmed_patterns.append(w_pattern_obj)

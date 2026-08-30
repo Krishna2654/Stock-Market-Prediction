@@ -42,5 +42,11 @@ def get_provider_status():
 def change_provider(provider_name: str):
     if provider_name not in providers:
         raise HTTPException(status_code=400, detail=f"Provider '{provider_name}' not available. Choose from {list(providers.keys())}")
+    prov = providers[provider_name]
+    if hasattr(prov, "is_configured") and not prov.is_configured:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider '{provider_name}' is not configured with live API credentials. Set {provider_name.upper()}_API_KEY and credentials in backend environment variables."
+        )
     set_current_provider(provider_name)
     return {"message": f"Data provider switched to {provider_name}"}

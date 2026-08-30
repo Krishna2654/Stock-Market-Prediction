@@ -252,7 +252,8 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredInstruments.map((inst) => {
-            const synth = syntheses[inst.symbol];
+            const norm = (s?: string) => (s || '').replace(/[/_\-\s]/g, '').toUpperCase();
+            const synth = syntheses[inst.symbol] || Object.values(syntheses).find((s) => norm(s.symbol) === norm(inst.symbol));
             const isCrypto = inst.symbol.includes('BTC') || inst.symbol.includes('USD') || inst.asset_type === 'CRYPTO';
             const currSym = isCrypto ? '$' : '₹';
 

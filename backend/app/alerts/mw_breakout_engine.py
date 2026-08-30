@@ -89,9 +89,10 @@ class MWBreakoutAlertEngine:
         - TARGET 2 HIT (terminal)
         - TARGET 1 HIT
         - SL HIT (terminal)
+        - FALSE BREAKOUT (terminal)
         - TARGET OPEN
         """
-        if alert.status in ["TARGET 2 HIT", "SL HIT"]:
+        if alert.status in ["TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT"]:
             return
 
         t2_val = alert.target_2 if alert.target_2 is not None else (
@@ -101,7 +102,7 @@ class MWBreakoutAlertEngine:
         sl_val = alert.invalidation_level
 
         for c in candles:
-            if alert.breakout_candle_timestamp and c.timestamp < alert.breakout_candle_timestamp:
+            if alert.breakout_candle_timestamp and c.timestamp <= alert.breakout_candle_timestamp:
                 continue
 
             if alert.pattern_type == "W":
@@ -114,6 +115,10 @@ class MWBreakoutAlertEngine:
                 elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.low <= sl_val:
                     alert.status = "SL HIT"
                     return
+                elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.close < alert.neckline_price:
+                    # Subsequent close back below neckline before Target 1 reached
+                    alert.status = "FALSE BREAKOUT"
+                    return
             elif alert.pattern_type == "M":
                 if c.low <= t2_val:
                     alert.status = "TARGET 2 HIT"
@@ -124,9 +129,13 @@ class MWBreakoutAlertEngine:
                 elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.high >= sl_val:
                     alert.status = "SL HIT"
                     return
+                elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.close > alert.neckline_price:
+                    # Subsequent close back above neckline before Target 1 reached
+                    alert.status = "FALSE BREAKOUT"
+                    return
 
         # Check last candle close if not terminal
-        if candles and alert.status not in ["TARGET 2 HIT", "SL HIT"]:
+        if candles and alert.status not in ["TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT"]:
             curr_p = candles[-1].close
             if alert.pattern_type == "W":
                 if curr_p >= t2_val:
@@ -136,6 +145,8 @@ class MWBreakoutAlertEngine:
                         alert.status = "TARGET 1 HIT"
                 elif alert.status in ["TARGET OPEN", "ACTIVE"] and curr_p <= sl_val:
                     alert.status = "SL HIT"
+                elif alert.status in ["TARGET OPEN", "ACTIVE"] and curr_p < alert.neckline_price:
+                    alert.status = "FALSE BREAKOUT"
             elif alert.pattern_type == "M":
                 if curr_p <= t2_val:
                     alert.status = "TARGET 2 HIT"
@@ -144,6 +155,8 @@ class MWBreakoutAlertEngine:
                         alert.status = "TARGET 1 HIT"
                 elif alert.status in ["TARGET OPEN", "ACTIVE"] and curr_p >= sl_val:
                     alert.status = "SL HIT"
+                elif alert.status in ["TARGET OPEN", "ACTIVE"] and curr_p > alert.neckline_price:
+                    alert.status = "FALSE BREAKOUT"
 
     def sync_chart_patterns(
         self,
@@ -339,122 +352,138 @@ class MWBreakoutAlertEngine:
                 continue
 
             for pat in tf_data.wm_patterns:
-                if pat.status != "BREAKOUT_CONFIRMED":
+                try:
+                    valid_confirmed_statuses = [
+                        "BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED",
+                        "TARGET_1_HIT", "TARGET_2_HIT", "TARGET 1 HIT", "TARGET 2 HIT",
+                        "FALSE_BREAKOUT", "FALSE BREAKOUT", "SL_HIT", "SL HIT", "INVALIDATED"
+                    ]
+                    if pat.status not in valid_confirmed_statuses:
+                        continue
+
+                    # Sensible Quality Threshold: >= 60
+                    if pat.quality_score < 60:
+                        continue
+
+                    if not pat.breakout_candle_time:
+                        continue
+
+                    clean_time = (pat.breakout_candle_time or pat.s2_time or "").replace(':', '-').replace('.', '-')
+                    stable_alert_id = f"mw_{clean_sym}_{tf_name}_{pat.pattern_type}_{clean_time}"
+
+                    # Unique deduplication key: symbol + timeframe + pattern_id + breakout_candle_time
+                    dedupe_key = f"{synthesis.symbol}_{tf_name}_{pat.pattern_id}_{pat.breakout_candle_time}"
+                    
+                    # Check if already present in alerts
+                    existing = next(
+                        (
+                            a for a in self.alerts
+                            if a.alert_id == stable_alert_id or (
+                                a.symbol.upper() == synthesis.symbol.upper()
+                                and a.timeframe.upper() == tf_name.upper()
+                                and a.pattern_type == pat.pattern_type
+                                and a.breakout_candle_timestamp == pat.breakout_candle_time
+                            )
+                        ),
+                        None
+                    )
+
+                    if existing:
+                        # Update fields in-place if changed
+                        existing.s1_price = pat.s1_price
+                        existing.s2_price = pat.s2_price
+                        existing.neckline_price = pat.neckline_price
+                        existing.pattern_height = pat.pattern_height
+                        if pat.target_analysis:
+                            existing.measured_target = round(pat.target_analysis.measured_target, 2)
+                            existing.target_2 = round(pat.target_analysis.target_2, 2) if pat.target_analysis.target_2 else None
+                            existing.invalidation_level = round(pat.target_analysis.invalidation_level, 2)
+                        continue
+
+                    if dedupe_key in self.seen_event_keys:
+                        continue
+
+                    self.seen_event_keys.add(dedupe_key)
+
+                    is_w = pat.pattern_type == "W"
+                    alert_type = "W_BREAKOUT_CONFIRMED" if is_w else "M_BREAKDOWN_CONFIRMED"
+                    direction = "UP" if is_w else "DOWN"
+
+                    # Find breakout candle metrics if present in recent events
+                    matching_event = next(
+                        (e for e in tf_data.recent_events if e.timestamp == pat.breakout_candle_time and e.pattern_type == pat.pattern_type),
+                        None
+                    )
+
+                    b_open = matching_event.breakout_candle_open if matching_event and matching_event.breakout_candle_open else pat.neckline_price
+                    b_high = matching_event.breakout_candle_high if matching_event and matching_event.breakout_candle_high else (pat.breakout_close or pat.neckline_price)
+                    b_low = matching_event.breakout_candle_low if matching_event and matching_event.breakout_candle_low else (pat.breakout_close or pat.neckline_price)
+                    b_close = pat.breakout_close or (matching_event.break_price if matching_event else pat.neckline_price)
+                    b_vol = matching_event.volume_ratio if matching_event and matching_event.volume_ratio else 1.25
+                    tl_price = matching_event.trendline_level if matching_event and matching_event.trendline_level else pat.neckline_price
+                    ema_price = matching_event.ema20_level if matching_event and matching_event.ema20_level else pat.neckline_price
+
+                    t_analysis = pat.target_analysis
+                    measured_target = t_analysis.measured_target if (t_analysis and t_analysis.measured_target) else (
+                        pat.neckline_price + pat.pattern_height if is_w else pat.neckline_price - pat.pattern_height
+                    )
+                    target_2 = t_analysis.target_2 if (t_analysis and t_analysis.target_2) else (
+                        pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height
+                    )
+                    nearest_sup = t_analysis.nearest_obstacle if not is_w and t_analysis else None
+                    nearest_res = t_analysis.nearest_obstacle if is_w and t_analysis else None
+                    inval_level = t_analysis.invalidation_level if t_analysis else (
+                        pat.prev_swing_sl_price or (min(pat.s1_price, pat.s2_price) if is_w else max(pat.s1_price, pat.s2_price))
+                    )
+
+                    alert = MWBreakoutAlert(
+                        alert_id=stable_alert_id,
+                        alert_type=alert_type,
+                        pattern_type=pat.pattern_type,
+                        direction=direction,
+                        symbol=synthesis.symbol,
+                        ticker=synthesis.ticker,
+                        timeframe=tf_name,
+                        pattern_id=pat.pattern_id,
+                        s1_price=pat.s1_price,
+                        s1_timestamp=pat.s1_time,
+                        s2_price=pat.s2_price,
+                        s2_timestamp=pat.s2_time,
+                        neckline_price=pat.neckline_price,
+                        neckline_timestamp=pat.neckline_time,
+                        pattern_height=pat.pattern_height,
+                        breakout_candle_timestamp=pat.breakout_candle_time,
+                        breakout_open=b_open,
+                        breakout_high=b_high,
+                        breakout_low=b_low,
+                        breakout_close=b_close,
+                        trendline_price=tl_price,
+                        ema20_price=ema_price,
+                        volume=0.0,
+                        relative_volume=round(b_vol, 2),
+                        measured_target=round(measured_target, 2),
+                        target_2=round(target_2, 2) if target_2 else round(pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height, 2),
+                        nearest_support=round(nearest_sup, 2) if nearest_sup else None,
+                        nearest_resistance=round(nearest_res, 2) if nearest_res else None,
+                        invalidation_level=round(inval_level, 2),
+                        quality_score=pat.quality_score,
+                        quality_breakdown=t_analysis.quality_breakdown if t_analysis else {},
+                        status=(
+                            "TARGET 2 HIT" if pat.status in ["TARGET_2_HIT", "TARGET 2 HIT"] else
+                            "TARGET 1 HIT" if pat.status in ["TARGET_1_HIT", "TARGET 1 HIT"] else
+                            "SL HIT" if pat.status in ["SL_HIT", "SL HIT", "INVALIDATED"] else
+                            "FALSE BREAKOUT" if pat.status in ["FALSE_BREAKOUT", "FALSE BREAKOUT"] else
+                            "TARGET OPEN"
+                        ),
+                        event_created_at=now_str,
+                        read=False
+                    )
+
+                    self.alerts.insert(0, alert)
+                    new_alerts.append(alert)
+                except Exception as pat_err:
+                    print(f"[MWAlertEngine] Error processing pattern for {synthesis.symbol} ({tf_name}): {pat_err}")
                     continue
-
-                # Strict Quality Threshold: >= 75
-                if pat.quality_score < 75:
-                    continue
-
-                if not pat.breakout_candle_time:
-                    continue
-
-                clean_time = (pat.breakout_candle_time or pat.s2_time or "").replace(':', '-').replace('.', '-')
-                stable_alert_id = f"mw_{clean_sym}_{tf_name}_{pat.pattern_type}_{clean_time}"
-
-                # Unique deduplication key: symbol + timeframe + pattern_id + breakout_candle_time
-                dedupe_key = f"{synthesis.symbol}_{tf_name}_{pat.pattern_id}_{pat.breakout_candle_time}"
-                
-                # Check if already present in alerts
-                existing = next(
-                    (
-                        a for a in self.alerts
-                        if a.alert_id == stable_alert_id or (
-                            a.symbol.upper() == synthesis.symbol.upper()
-                            and a.timeframe.upper() == tf_name.upper()
-                            and a.pattern_type == pat.pattern_type
-                            and a.breakout_candle_timestamp == pat.breakout_candle_time
-                        )
-                    ),
-                    None
-                )
-
-                if existing:
-                    # Update fields in-place if changed
-                    existing.s1_price = pat.s1_price
-                    existing.s2_price = pat.s2_price
-                    existing.neckline_price = pat.neckline_price
-                    existing.pattern_height = pat.pattern_height
-                    if pat.target_analysis:
-                        existing.measured_target = round(pat.target_analysis.measured_target, 2)
-                        existing.target_2 = round(pat.target_analysis.target_2, 2) if pat.target_analysis.target_2 else None
-                        existing.invalidation_level = round(pat.target_analysis.invalidation_level, 2)
-                    continue
-
-                if dedupe_key in self.seen_event_keys:
-                    continue
-
-                self.seen_event_keys.add(dedupe_key)
-
-                is_w = pat.pattern_type == "W"
-                alert_type = "W_BREAKOUT_CONFIRMED" if is_w else "M_BREAKDOWN_CONFIRMED"
-                direction = "UP" if is_w else "DOWN"
-
-                # Find breakout candle metrics if present in recent events
-                matching_event = next(
-                    (e for e in tf_data.recent_events if e.timestamp == pat.breakout_candle_time and e.pattern_type == pat.pattern_type),
-                    None
-                )
-
-                b_open = matching_event.breakout_candle_open if matching_event and matching_event.breakout_candle_open else pat.neckline_price
-                b_high = matching_event.breakout_candle_high if matching_event and matching_event.breakout_candle_high else (pat.breakout_close or pat.neckline_price)
-                b_low = matching_event.breakout_candle_low if matching_event and matching_event.breakout_candle_low else (pat.breakout_close or pat.neckline_price)
-                b_close = pat.breakout_close or (matching_event.break_price if matching_event else pat.neckline_price)
-                b_vol = matching_event.volume_ratio if matching_event and matching_event.volume_ratio else 1.25
-                tl_price = matching_event.trendline_level if matching_event and matching_event.trendline_level else pat.neckline_price
-                ema_price = matching_event.ema20_level if matching_event and matching_event.ema20_level else pat.neckline_price
-
-                t_analysis = pat.target_analysis
-                measured_target = t_analysis.measured_target if (t_analysis and t_analysis.measured_target) else (
-                    pat.neckline_price + pat.pattern_height if is_w else pat.neckline_price - pat.pattern_height
-                )
-                target_2 = t_analysis.target_2 if (t_analysis and t_analysis.target_2) else (
-                    pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height
-                )
-                nearest_sup = t_analysis.nearest_obstacle if not is_w and t_analysis else None
-                inval_level = t_analysis.invalidation_level if t_analysis else (
-                    pat.prev_swing_sl_price or (min(pat.s1_price, pat.s2_price) if is_w else max(pat.s1_price, pat.s2_price))
-                )
-
-                alert = MWBreakoutAlert(
-                    alert_id=stable_alert_id,
-                    alert_type=alert_type,
-                    pattern_type=pat.pattern_type,
-                    direction=direction,
-                    symbol=synthesis.symbol,
-                    ticker=synthesis.ticker,
-                    timeframe=tf_name,
-                    pattern_id=pat.pattern_id,
-                    s1_price=pat.s1_price,
-                    s1_timestamp=pat.s1_time,
-                    s2_price=pat.s2_price,
-                    s2_timestamp=pat.s2_time,
-                    neckline_price=pat.neckline_price,
-                    neckline_timestamp=pat.neckline_time,
-                    pattern_height=pat.pattern_height,
-                    breakout_candle_timestamp=pat.breakout_candle_time,
-                    breakout_open=b_open,
-                    breakout_high=b_high,
-                    breakout_low=b_low,
-                    breakout_close=b_close,
-                    trendline_price=tl_price,
-                    ema20_price=ema_price,
-                    volume=0.0,
-                    relative_volume=round(b_vol, 2),
-                    measured_target=round(measured_target, 2),
-                    target_2=round(target_2, 2) if target_2 else round(pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height, 2),
-                    nearest_support=round(nearest_sup, 2) if nearest_sup else None,
-                    nearest_resistance=round(nearest_res, 2) if nearest_res else None,
-                    invalidation_level=round(inval_level, 2),
-                    quality_score=pat.quality_score,
-                    quality_breakdown=t_analysis.quality_breakdown if t_analysis else {},
-                    status="TARGET OPEN",
-                    event_created_at=now_str,
-                    read=False
-                )
-
-                self.alerts.insert(0, alert)
-                new_alerts.append(alert)
 
         # Cap memory storage
         if len(self.alerts) > 200:
@@ -484,8 +513,8 @@ class MWBreakoutAlertEngine:
             if alert.symbol != synthesis.symbol:
                 continue
 
-            # Terminal outcomes: TARGET 2 HIT and SL HIT are final and must never be overwritten
-            if alert.status in ["TARGET 2 HIT", "SL HIT"]:
+            # Terminal outcomes: TARGET 2 HIT, SL HIT, and FALSE BREAKOUT are final and must never be overwritten
+            if alert.status in ["TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT"]:
                 continue
 
             t2_val = alert.target_2 if alert.target_2 is not None else (
@@ -520,6 +549,10 @@ class MWBreakoutAlertEngine:
                             alert.status = "SL HIT"
                             status_changed = True
                             break
+                        elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.close < alert.neckline_price:
+                            alert.status = "FALSE BREAKOUT"
+                            status_changed = True
+                            break
 
                     elif alert.pattern_type == "M":
                         if c.low <= t2_val:
@@ -534,9 +567,13 @@ class MWBreakoutAlertEngine:
                             alert.status = "SL HIT"
                             status_changed = True
                             break
+                        elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.close > alert.neckline_price:
+                            alert.status = "FALSE BREAKOUT"
+                            status_changed = True
+                            break
 
             # Evaluate against current live price if not yet terminal
-            if alert.status not in ["TARGET 2 HIT", "SL HIT"]:
+            if alert.status not in ["TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT"]:
                 if alert.pattern_type == "W":
                     # Priority 1: Target 2 reached (direct jump or subsequent)
                     if current_price >= t2_val:
