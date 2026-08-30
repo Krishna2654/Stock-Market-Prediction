@@ -54,6 +54,9 @@ export interface Trendline {
   intercept: number;
   touch_count: number;
   touch_points: TrendlineTouchPoint[];
+  r_squared?: number | null;
+  swing_structure?: string | null;
+  structure_points?: string[];
   status: "ACTIVE" | "BROKEN" | "RETESTED";
   is_active: boolean;
   is_broken: boolean;
@@ -463,4 +466,33 @@ export interface PaperOrder {
   closed_at?: string | null;
   realized_pnl?: number | null;
   notes: string;
+}
+
+export interface TrendlineShortlistCandidate {
+  id: string;
+  symbol: string;
+  ticker?: string | null;
+  timeframe: string;
+  current_price: number;
+  trendline_type: "RESISTANCE_BREAKOUT" | "SUPPORT_BREAKDOWN";
+  direction: "BULLISH" | "BEARISH";
+  touch_count: number;
+  swing_structure: string;
+  structure_sequence?: string[];
+  slope: number;
+  intercept: number;
+  trendline_price: number;
+  breakout_pct: number;
+  r_squared: number;
+  volume_ratio?: number | null;
+  trendline_score: number;
+  confidence: "VERY STRONG" | "STRONG" | "VALID" | "NOT SHORTLISTED";
+  breakout_time: string;
+  status: "WATCHING" | "BREAKOUT" | "CONFIRMED" | "RETEST" | "FALSE BREAKOUT";
+  invalidation_level?: number | null;
+  target_price?: number | null;
+  htf_alignment?: string | null;
+  notes?: string | null;
+  score_breakdown?: Record<string, number>;
+  created_at?: string | null;
 }

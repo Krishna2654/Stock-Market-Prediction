@@ -22,6 +22,7 @@ from app.core.config import settings
 
 from app.alerts.high_confluence_engine import high_confluence_alert_engine
 from app.alerts.mw_breakout_engine import mw_breakout_engine
+from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
 from app.api.websocket import ws_manager
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -62,11 +63,22 @@ async def get_all_instruments_overview():
             valid_syntheses.append(res)
             alert_engine.process_synthesis_for_alerts(res)
             high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(res)
-            new_mw = mw_breakout_engine.process_synthesis(res)
+            new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(res)
+            new_shortlist = trendline_shortlist_engine.process_synthesis(res)
             for mwa in new_mw:
                 asyncio.create_task(ws_manager.broadcast({
                     "type": "MW_BREAKOUT_TRIGGERED",
                     "alert": mwa.model_dump()
+                }))
+            for mwa in updated_mw:
+                asyncio.create_task(ws_manager.broadcast({
+                    "type": "MW_BREAKOUT_STATUS_UPDATED",
+                    "alert": mwa.model_dump()
+                }))
+            for cand in new_shortlist:
+                asyncio.create_task(ws_manager.broadcast({
+                    "type": "TRENDLINE_SHORTLIST_UPDATED",
+                    "candidate": cand.model_dump()
                 }))
         elif isinstance(res, Exception):
             print(f"[Overview Error] {res}")
@@ -101,11 +113,22 @@ async def get_instrument_detail(symbol: str):
     synthesis = await _analyze_instrument_cached(symbol, ticker, provider)
     alert_engine.process_synthesis_for_alerts(synthesis)
     high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synthesis)
-    new_mw = mw_breakout_engine.process_synthesis(synthesis)
+    new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(synthesis)
+    new_shortlist = trendline_shortlist_engine.process_synthesis(synthesis)
     for mwa in new_mw:
         asyncio.create_task(ws_manager.broadcast({
             "type": "MW_BREAKOUT_TRIGGERED",
             "alert": mwa.model_dump()
+        }))
+    for mwa in updated_mw:
+        asyncio.create_task(ws_manager.broadcast({
+            "type": "MW_BREAKOUT_STATUS_UPDATED",
+            "alert": mwa.model_dump()
+        }))
+    for cand in new_shortlist:
+        asyncio.create_task(ws_manager.broadcast({
+            "type": "TRENDLINE_SHORTLIST_UPDATED",
+            "candidate": cand.model_dump()
         }))
     return synthesis
 
@@ -180,6 +203,16 @@ async def get_chart_data(
             for wb in wm_breaks:
                 breaks.append(wb)
 
+            # Single Source of Truth: Synchronize canonical chart patterns with mw_breakout_engine
+            canonical_active_alert = mw_breakout_engine.sync_chart_patterns(
+                symbol=symbol,
+                timeframe=timeframe,
+                confirmed_patterns=confirmed_wm_patterns,
+                active_pattern=active_wm_pattern,
+                candles=candles,
+                ticker=ticker
+            )
+
             predictive_scenarios = PredictiveScenarioEngine.compute_scenarios(
                 candles=candles,
                 swings=swings,
@@ -220,6 +253,7 @@ async def get_chart_data(
                 "predictive_scenarios": predictive_scenarios,
                 "wm_patterns": [p.model_dump() for p in confirmed_wm_patterns],
                 "active_wm_pattern": active_wm_pattern.model_dump() if active_wm_pattern else None,
+                "active_wm_alert": canonical_active_alert.model_dump() if canonical_active_alert else None,
                 "wm_debug_candidates": [c.model_dump() for c in debug_wm_candidates]
             }
 

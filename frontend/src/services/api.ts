@@ -10,7 +10,8 @@ import {
   BacktestRequest,
   BacktestResult,
   HypotheticalSetup,
-  PaperOrder
+  PaperOrder,
+  TrendlineShortlistCandidate
 } from '../types';
 
 const API_BASE = '/api';
@@ -211,6 +212,48 @@ export const api = {
       method: 'POST'
     });
     if (!res.ok) throw new Error('Failed to trigger test M/W breakout');
+    return res.json();
+  },
+
+  // Trendline Breakout Stock Shortlisting
+  getTrendlineShortlist: async (filters?: {
+    symbol?: string;
+    timeframe?: string;
+    direction?: string;
+    status?: string;
+    min_score?: number;
+    limit?: number;
+  }): Promise<TrendlineShortlistCandidate[]> => {
+    const query = new URLSearchParams();
+    if (filters?.symbol) query.append('symbol', filters.symbol);
+    if (filters?.timeframe) query.append('timeframe', filters.timeframe);
+    if (filters?.direction) query.append('direction', filters.direction);
+    if (filters?.status) query.append('status', filters.status);
+    if (filters?.min_score) query.append('min_score', filters.min_score.toString());
+    if (filters?.limit) query.append('limit', filters.limit.toString());
+    const res = await fetch(`${API_BASE}/alerts/trendline-shortlist?${query.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch trendline shortlist');
+    return res.json();
+  },
+
+  getTrendlineShortlistDetail: async (candidateId: string): Promise<TrendlineShortlistCandidate> => {
+    const res = await fetch(`${API_BASE}/alerts/trendline-shortlist/${encodeURIComponent(candidateId)}`);
+    if (!res.ok) throw new Error('Failed to fetch trendline shortlist candidate detail');
+    return res.json();
+  },
+
+  clearTrendlineShortlist: async (): Promise<void> => {
+    const res = await fetch(`${API_BASE}/alerts/trendline-shortlist/clear`, {
+      method: 'POST'
+    });
+    if (!res.ok) throw new Error('Failed to clear trendline shortlist');
+  },
+
+  triggerTestTrendlineShortlist: async (direction: 'BULLISH' | 'BEARISH' = 'BULLISH'): Promise<TrendlineShortlistCandidate> => {
+    const res = await fetch(`${API_BASE}/alerts/trendline-shortlist/test?direction=${direction}`, {
+      method: 'POST'
+    });
+    if (!res.ok) throw new Error('Failed to trigger test trendline shortlist');
     return res.json();
   },
 

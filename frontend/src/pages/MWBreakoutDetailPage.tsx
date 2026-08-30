@@ -24,12 +24,59 @@ import {
 // Module-level cache for instant M/W Breakout Details opening
 const detailMemoryCache = new Map<string, { alert: MWBreakoutAlert; candles: Candle[] }>();
 
+function generatePatternFallbackCandles(alert: MWBreakoutAlert): Candle[] {
+  const isW = alert.pattern_type === 'W';
+  const baseTime = alert.s1_timestamp ? new Date(alert.s1_timestamp).getTime() : Date.now() - 3600000;
+  const intervalMs = alert.timeframe === '5M' ? 300000 : alert.timeframe === '1H' ? 3600000 : 900000;
+
+  const points: number[] = [
+    alert.neckline_price,
+    (alert.neckline_price + alert.s1_price) / 2,
+    alert.s1_price,
+    (alert.s1_price + alert.neckline_price) / 2,
+    alert.neckline_price,
+    (alert.neckline_price + alert.s2_price) / 2,
+    alert.s2_price,
+    (alert.s2_price + alert.neckline_price) / 2,
+    alert.breakout_open || alert.neckline_price,
+    alert.breakout_close,
+    alert.status === 'TARGET 2 HIT'
+      ? alert.target_2 || alert.measured_target
+      : alert.status === 'TARGET 1 HIT'
+      ? alert.measured_target
+      : alert.status === 'SL HIT'
+      ? alert.invalidation_level
+      : (alert.breakout_close + (alert.measured_target - alert.neckline_price) * 0.5),
+  ];
+
+  return points.map((p, i) => {
+    const t = new Date(baseTime + (i - 2) * intervalMs).toISOString();
+    const prevP = i > 0 ? points[i - 1] : p;
+    const margin = Math.max(Math.abs(p - prevP) * 0.15, (alert.pattern_height || 10) * 0.05);
+    return {
+      timestamp: t,
+      open: prevP,
+      high: Math.max(p, prevP) + margin,
+      low: Math.min(p, prevP) - margin,
+      close: p,
+      volume: 1000,
+    };
+  });
+}
+
 export const MWBreakoutDetailPage: React.FC = () => {
   const { alertId } = useParams<{ alertId: string }>();
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const decodedAlertId = alertId ? decodeURIComponent(alertId) : '';
+  const rawId = alertId || '';
+  const decodedAlertId = (() => {
+    try {
+      return decodeURIComponent(rawId);
+    } catch {
+      return rawId;
+    }
+  })();
   const cachedDetail = detailMemoryCache.get(decodedAlertId);
 
   const [alert, setAlert] = useState<MWBreakoutAlert | null>(() => cachedDetail?.alert || null);
@@ -45,21 +92,35 @@ export const MWBreakoutDetailPage: React.FC = () => {
         setIsLoading(true);
       }
       setError(null);
+
+      let fetchedAlert: MWBreakoutAlert | null = null;
       try {
-        const data = await api.getMWBreakoutDetail(decodedAlertId);
-        setAlert(data);
-
-        // Fetch chart data for symbol & timeframe
-        const chartRes = await api.getChartData(data.symbol, data.timeframe, 150);
-        const candleList = chartRes && chartRes.candles ? chartRes.candles : [];
-        setCandles(candleList);
-
-        detailMemoryCache.set(decodedAlertId, { alert: data, candles: candleList });
+        fetchedAlert = await api.getMWBreakoutDetail(decodedAlertId);
+        setAlert(fetchedAlert);
       } catch (err: any) {
-        console.error('Failed to load breakout detail:', err);
-        if (!alert) {
-          setError(err.message || 'Breakout signal details not found');
+        console.error('Failed to load breakout historical record:', err);
+        setError(err.message || 'Breakout signal details not found');
+        setIsLoading(false);
+        return;
+      }
+
+      // Supplementary live chart candles - isolated so failure never affects historical alert view!
+      try {
+        const chartRes = await api.getChartData(fetchedAlert.symbol, fetchedAlert.timeframe, 150);
+        const candleList = chartRes && chartRes.candles && chartRes.candles.length > 0 ? chartRes.candles : [];
+        if (candleList.length > 0) {
+          setCandles(candleList);
+          detailMemoryCache.set(decodedAlertId, { alert: fetchedAlert, candles: candleList });
+        } else {
+          const fallback = generatePatternFallbackCandles(fetchedAlert);
+          setCandles(fallback);
+          detailMemoryCache.set(decodedAlertId, { alert: fetchedAlert, candles: fallback });
         }
+      } catch (chartErr) {
+        console.warn('Supplementary live chart candles unavailable, using pattern geometry fallback:', chartErr);
+        const fallback = generatePatternFallbackCandles(fetchedAlert);
+        setCandles(fallback);
+        detailMemoryCache.set(decodedAlertId, { alert: fetchedAlert, candles: fallback });
       } finally {
         setIsLoading(false);
       }

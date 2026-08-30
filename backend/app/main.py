@@ -16,6 +16,8 @@ from app.api.websocket import ws_router, ws_manager
 from app.api.deps import get_current_provider, configured_instruments
 from app.alerts.engine import alert_engine
 from app.alerts.high_confluence_engine import high_confluence_alert_engine
+from app.alerts.mw_breakout_engine import mw_breakout_engine
+from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
 
 background_monitor_task = None
 
@@ -38,6 +40,8 @@ async def market_monitor_loop():
                         synthesis = await _analyze_instrument(inst.symbol, inst.ticker, provider)
                         new_alerts = alert_engine.process_synthesis_for_alerts(synthesis)
                         new_high_alerts = high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synthesis)
+                        new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(synthesis)
+                        new_shortlist = trendline_shortlist_engine.process_synthesis(synthesis)
                         
                         # Broadcast synthesis update
                         await ws_manager.broadcast({
@@ -62,6 +66,27 @@ async def market_monitor_loop():
                             await ws_manager.broadcast({
                                 "type": "HIGH_CONFLUENCE_ALERT_TRIGGERED",
                                 "alert": hc_alert.model_dump()
+                            })
+
+                        # If M/W breakout triggered, broadcast on MW_BREAKOUT_TRIGGERED
+                        for mwa in new_mw:
+                            await ws_manager.broadcast({
+                                "type": "MW_BREAKOUT_TRIGGERED",
+                                "alert": mwa.model_dump()
+                            })
+
+                        # If M/W breakout status updated (e.g. TARGET 1/2 HIT or SL HIT), broadcast update
+                        for mwa in updated_mw:
+                            await ws_manager.broadcast({
+                                "type": "MW_BREAKOUT_STATUS_UPDATED",
+                                "alert": mwa.model_dump()
+                            })
+
+                        # If new Trendline Breakout Shortlist candidate found, broadcast update
+                        for cand in new_shortlist:
+                            await ws_manager.broadcast({
+                                "type": "TRENDLINE_SHORTLIST_UPDATED",
+                                "candidate": cand.model_dump()
                             })
                     except Exception as e:
                         print(f"[Market Monitor Error for {inst.symbol}]: {e}")

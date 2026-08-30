@@ -166,6 +166,9 @@ class TrendlineSchema(BaseModel):
     intercept: float
     touch_count: int
     touch_points: List[TrendlineTouchPoint] = []
+    r_squared: Optional[float] = None
+    swing_structure: Optional[str] = None
+    structure_points: Optional[List[str]] = None
     status: Literal["ACTIVE", "BROKEN", "RETESTED"] = "ACTIVE"
     is_active: bool = True
     is_broken: bool = False
@@ -438,3 +441,31 @@ class PaperOrder(BaseModel):
     closed_at: Optional[str] = None
     realized_pnl: Optional[float] = None
     notes: str = ""
+
+class TrendlineShortlistCandidate(BaseModel):
+    id: str
+    symbol: str
+    ticker: Optional[str] = None
+    timeframe: str
+    current_price: float
+    trendline_type: Literal["RESISTANCE_BREAKOUT", "SUPPORT_BREAKDOWN"]
+    direction: Literal["BULLISH", "BEARISH"]
+    touch_count: int
+    swing_structure: str  # e.g. "Lower High × 4" or "Higher Low × 3"
+    structure_sequence: List[str] = []  # e.g. ["LH", "LH", "LH", "LH"]
+    slope: float
+    intercept: float
+    trendline_price: float
+    breakout_pct: float
+    r_squared: float
+    volume_ratio: Optional[float] = 1.0
+    trendline_score: int  # 0 to 100
+    confidence: Literal["VERY STRONG", "STRONG", "VALID", "NOT SHORTLISTED"] = "VALID"
+    breakout_time: str
+    status: Literal["WATCHING", "BREAKOUT", "CONFIRMED", "RETEST", "FALSE BREAKOUT"] = "BREAKOUT"
+    invalidation_level: Optional[float] = None
+    target_price: Optional[float] = None
+    htf_alignment: Optional[str] = None
+    notes: Optional[str] = None
+    score_breakdown: Dict[str, int] = {}
+    created_at: Optional[str] = None

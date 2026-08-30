@@ -23,7 +23,10 @@ class Trendline:
         strength: Literal["MAJOR", "INTERMEDIATE", "MINOR"] = "INTERMEDIATE",
         status: Literal["ACTIVE", "BROKEN", "RETESTED"] = "ACTIVE",
         is_active: bool = True,
-        is_broken: bool = False
+        is_broken: bool = False,
+        r_squared: Optional[float] = None,
+        swing_structure: Optional[str] = None,
+        structure_points: Optional[List[str]] = None
     ):
         self.line_type = line_type
         self.p1_index = p1_index
@@ -43,6 +46,9 @@ class Trendline:
         self.status = status
         self.is_active = is_active
         self.is_broken = is_broken
+        self.r_squared = r_squared
+        self.swing_structure = swing_structure
+        self.structure_points = structure_points or []
 
     def get_price_at_index(self, index: int) -> float:
         return self.slope * index + self.intercept
@@ -64,6 +70,9 @@ class Trendline:
             "intercept": self.intercept,
             "touch_count": self.touch_count,
             "touch_points": [tp.model_dump() if hasattr(tp, "model_dump") else tp for tp in self.touch_points],
+            "r_squared": round(self.r_squared, 3) if self.r_squared is not None else None,
+            "swing_structure": self.swing_structure,
+            "structure_points": self.structure_points,
             "status": self.status,
             "is_active": self.is_active,
             "is_broken": self.is_broken
@@ -217,6 +226,25 @@ class TrendlineDetector:
                     for s in [unique_touch_swings[idx] for idx in sorted_touch_indices]
                 ]
 
+                # Calculate R^2 goodness-of-fit across all touch points
+                r_squared = 1.0
+                if len(touch_point_objs) >= 2:
+                    xs = np.array([tp.index for tp in touch_point_objs], dtype=float)
+                    ys = np.array([tp.price for tp in touch_point_objs], dtype=float)
+                    mean_x = np.mean(xs)
+                    mean_y = np.mean(ys)
+                    ss_xx = np.sum((xs - mean_x) ** 2)
+                    ss_yy = np.sum((ys - mean_y) ** 2)
+                    ss_xy = np.sum((xs - mean_x) * (ys - mean_y))
+                    if ss_xx > 1e-6 and ss_yy > 1e-6:
+                        r_val = ss_xy / np.sqrt(ss_xx * ss_yy)
+                        r_squared = max(0.0, min(1.0, float(r_val ** 2)))
+                    else:
+                        r_squared = 0.95
+
+                swing_structure = f"Higher Low × {touch_count}"
+                structure_points = ["HL"] * touch_count
+
                 tl = Trendline(
                     line_type="ASCENDING_SUPPORT",
                     p1_index=first.index,
@@ -234,7 +262,10 @@ class TrendlineDetector:
                     strength=strength,
                     status=status,
                     is_active=not is_broken,
-                    is_broken=is_broken
+                    is_broken=is_broken,
+                    r_squared=r_squared,
+                    swing_structure=swing_structure,
+                    structure_points=structure_points
                 )
                 candidates.append((score, tl))
 
@@ -365,6 +396,25 @@ class TrendlineDetector:
                     for s in [unique_touch_swings[idx] for idx in sorted_touch_indices]
                 ]
 
+                # Calculate R^2 goodness-of-fit across all touch points
+                r_squared = 1.0
+                if len(touch_point_objs) >= 2:
+                    xs = np.array([tp.index for tp in touch_point_objs], dtype=float)
+                    ys = np.array([tp.price for tp in touch_point_objs], dtype=float)
+                    mean_x = np.mean(xs)
+                    mean_y = np.mean(ys)
+                    ss_xx = np.sum((xs - mean_x) ** 2)
+                    ss_yy = np.sum((ys - mean_y) ** 2)
+                    ss_xy = np.sum((xs - mean_x) * (ys - mean_y))
+                    if ss_xx > 1e-6 and ss_yy > 1e-6:
+                        r_val = ss_xy / np.sqrt(ss_xx * ss_yy)
+                        r_squared = max(0.0, min(1.0, float(r_val ** 2)))
+                    else:
+                        r_squared = 0.95
+
+                swing_structure = f"Lower High × {touch_count}"
+                structure_points = ["LH"] * touch_count
+
                 tl = Trendline(
                     line_type="DESCENDING_RESISTANCE",
                     p1_index=first.index,
@@ -382,7 +432,10 @@ class TrendlineDetector:
                     strength=strength,
                     status=status,
                     is_active=not is_broken,
-                    is_broken=is_broken
+                    is_broken=is_broken,
+                    r_squared=r_squared,
+                    swing_structure=swing_structure,
+                    structure_points=structure_points
                 )
                 candidates.append((score, tl))
 

@@ -1,9 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   InstrumentConfig,
-  MultiTimeframeSynthesis
+  MultiTimeframeSynthesis,
+  TrendlineShortlistCandidate
 } from '../types';
+import { api } from '../services/api';
+import { TrendlineShortlistPanel } from '../components/TrendlineShortlistPanel';
 import {
   TrendingUp,
   Search,
@@ -16,7 +19,8 @@ import {
   Layers,
   ChevronRight,
   Sparkles,
-  Activity
+  Activity,
+  Target
 } from 'lucide-react';
 
 interface MarketListPageProps {
@@ -35,14 +39,31 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
   onOpenManageModal
 }) => {
   const navigate = useNavigate();
+  const [activeView, setActiveView] = useState<'MARKETS' | 'SHORTLIST'>('MARKETS');
+  const [shortlist, setShortlist] = useState<TrendlineShortlistCandidate[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [assetFilter, setAssetFilter] = useState<'ALL' | 'INDEX' | 'EQUITY' | 'CRYPTO'>('ALL');
   const [biasFilter, setBiasFilter] = useState<'ALL' | 'BULLISH' | 'BEARISH' | 'NEUTRAL'>('ALL');
 
-  // Set document title
-  React.useEffect(() => {
-    document.title = 'AI Market Analyzer — Markets';
+  const loadShortlist = async () => {
+    try {
+      const data = await api.getTrendlineShortlist();
+      setShortlist(data);
+    } catch (err) {
+      console.error('Failed to load trendline shortlist', err);
+    }
+  };
+
+  useEffect(() => {
+    loadShortlist();
   }, []);
+
+  // Set document title
+  useEffect(() => {
+    document.title = activeView === 'SHORTLIST' 
+      ? 'AI Market Analyzer — Trendline Breakout Shortlist' 
+      : 'AI Market Analyzer — Markets';
+  }, [activeView]);
 
   // Filtered market list
   const filteredInstruments = useMemo(() => {
@@ -115,7 +136,43 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
         </div>
       </div>
 
-      {/* Search & Filter Controls */}
+      {/* Top View Selector Tabs: Markets vs Trendline Breakout Shortlist */}
+      <div className="flex items-center gap-2 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/90 w-fit">
+        <button
+          onClick={() => setActiveView('MARKETS')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            activeView === 'MARKETS'
+              ? 'bg-white text-slate-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Layers className="h-4 w-4 text-blue-600" />
+          <span>All Tracked Markets ({instruments.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView('SHORTLIST')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            activeView === 'SHORTLIST'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-blue-700 hover:bg-white/60'
+          }`}
+        >
+          <Target className="h-4 w-4" />
+          <span>🎯 Trendline Breakout Shortlist</span>
+          {shortlist.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-mono font-bold animate-pulse">
+              {shortlist.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeView === 'SHORTLIST' ? (
+        <TrendlineShortlistPanel candidates={shortlist} onRefresh={loadShortlist} />
+      ) : (
+        <>
+          {/* Search & Filter Controls */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-xs w-full min-w-0">
         {/* Search Bar */}
         <div className="relative w-full sm:w-80 min-w-0">
@@ -332,6 +389,8 @@ export const MarketListPage: React.FC<MarketListPageProps> = ({
             );
           })}
         </div>
+      )}
+      </>
       )}
     </div>
   );

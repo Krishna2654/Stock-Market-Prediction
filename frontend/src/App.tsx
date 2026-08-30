@@ -154,6 +154,13 @@ const AppContent: React.FC = () => {
           return [mwAlert, ...prev];
         });
       }
+      // 1b. DEDICATED M/W BREAKOUT STATUS UPDATED EVENT
+      else if (data.type === 'MW_BREAKOUT_STATUS_UPDATED' && data.alert) {
+        const updatedAlert: MWBreakoutAlert = data.alert;
+        setMwBreakoutAlerts((prev) =>
+          prev.map((a) => (a.alert_id === updatedAlert.alert_id ? updatedAlert : a))
+        );
+      }
       // 2. HIGH-CONFLUENCE BREAKOUT ALERTS (Dedicated Event Channel)
       else if (data.type === 'HIGH_CONFLUENCE_ALERT_TRIGGERED' && data.alert) {
         const hcAlert: HighConfluenceAlert = data.alert;
@@ -232,6 +239,7 @@ const AppContent: React.FC = () => {
                 instruments={instruments}
                 syntheses={syntheses}
                 highConfluenceAlerts={highConfluenceAlerts}
+                mwBreakoutAlerts={mwBreakoutAlerts}
                 onClearHighConfluenceAlerts={() => setHighConfluenceAlerts([])}
                 onHighConfluenceAlertTriggered={(alert) => {
                   setHighConfluenceAlerts((prev) => {
@@ -272,6 +280,7 @@ const AppContent: React.FC = () => {
                 instruments={instruments}
                 syntheses={syntheses}
                 highConfluenceAlerts={highConfluenceAlerts}
+                mwBreakoutAlerts={mwBreakoutAlerts}
                 onClearHighConfluenceAlerts={() => setHighConfluenceAlerts([])}
                 onHighConfluenceAlertTriggered={(alert) => {
                   setHighConfluenceAlerts((prev) => {

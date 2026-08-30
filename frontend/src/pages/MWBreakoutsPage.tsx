@@ -121,6 +121,19 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
       }
     }
 
+    // Deduplicate alerts by pattern_id or composite key
+    const seen = new Set<string>();
+    const deduplicated: MWBreakoutAlert[] = [];
+    for (const a of result) {
+      const key = a.pattern_id || `${a.symbol}_${a.timeframe}_${a.pattern_type}_${a.breakout_candle_timestamp}`;
+      if (!seen.has(key) && !seen.has(a.alert_id)) {
+        seen.add(key);
+        seen.add(a.alert_id);
+        deduplicated.push(a);
+      }
+    }
+    result = deduplicated;
+
     // Sort newest first by breakout_candle_timestamp
     result.sort(
       (a, b) => new Date(b.breakout_candle_timestamp).getTime() - new Date(a.breakout_candle_timestamp).getTime()

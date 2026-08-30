@@ -2,10 +2,11 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime, timezone
-from app.models.schemas import AlertRule, AlertNotification, HighConfluenceAlert, MWBreakoutAlert
+from app.models.schemas import AlertRule, AlertNotification, HighConfluenceAlert, MWBreakoutAlert, TrendlineShortlistCandidate
 from app.alerts.engine import alert_engine
 from app.alerts.high_confluence_engine import high_confluence_alert_engine
 from app.alerts.mw_breakout_engine import mw_breakout_engine
+from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
 from app.market_structure.precision_breakouts import PrecisionBreakoutDetector
 from app.api.websocket import ws_manager
 
@@ -241,6 +242,13 @@ def get_mw_breakout_alerts(
     date_filter: Optional[str] = Query(None, description="Date filter (latest, today, 24h, 7d, all)"),
     limit: int = Query(50, description="Max results")
 ):
+    try:
+        from app.api.routes_analysis import _synthesis_cache
+        for _, (_, synth) in list(_synthesis_cache.items()):
+            mw_breakout_engine._update_existing_alert_statuses(synth)
+    except Exception:
+        pass
+
     return mw_breakout_engine.get_alerts(
         symbol=symbol,
         timeframe=timeframe,
@@ -254,8 +262,15 @@ def get_mw_breakout_alerts(
 def get_mw_breakout_stats():
     return mw_breakout_engine.get_summary_stats()
 
-@router.get("/mw-breakouts/{alert_id}", response_model=MWBreakoutAlert)
+@router.get("/mw-breakouts/{alert_id:path}", response_model=MWBreakoutAlert)
 def get_mw_breakout_detail(alert_id: str):
+    try:
+        from app.api.routes_analysis import _synthesis_cache
+        for _, (_, synth) in list(_synthesis_cache.items()):
+            mw_breakout_engine._update_existing_alert_statuses(synth)
+    except Exception:
+        pass
+
     alert = mw_breakout_engine.get_alert_by_id(alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="M/W Breakout Alert not found")
@@ -376,4 +391,56 @@ async def trigger_test_mw_breakout(
         "alert": test_alert.model_dump()
     })
     return test_alert
+
+# -------------------------------------------------------------
+# TRENDLINE BREAKOUT STOCK SHORTLISTING ENDPOINTS
+# -------------------------------------------------------------
+
+@router.get("/trendline-shortlist", response_model=List[TrendlineShortlistCandidate])
+def get_trendline_shortlist(
+    symbol: Optional[str] = Query(None, description="Symbol filter or search query"),
+    timeframe: Optional[str] = Query(None, description="Timeframe filter (4H, 1H, 15M, 5M, or All)"),
+    direction: Optional[str] = Query(None, description="Direction filter (BULLISH, BEARISH, or All)"),
+    status: Optional[str] = Query(None, description="Status filter (WATCHING, BREAKOUT, CONFIRMED, RETEST, FALSE BREAKOUT, or All)"),
+    min_score: int = Query(70, description="Minimum trendline score"),
+    limit: int = Query(50, description="Max results")
+):
+    try:
+        from app.api.routes_analysis import _synthesis_cache
+        for _, (_, synth) in list(_synthesis_cache.items()):
+            trendline_shortlist_engine.process_synthesis(synth)
+    except Exception:
+        pass
+
+    return trendline_shortlist_engine.get_shortlist(
+        symbol=symbol,
+        timeframe=timeframe,
+        direction=direction,
+        status=status,
+        min_score=min_score,
+        limit=limit
+    )
+
+@router.get("/trendline-shortlist/{candidate_id:path}", response_model=TrendlineShortlistCandidate)
+def get_trendline_shortlist_detail(candidate_id: str):
+    candidate = trendline_shortlist_engine.get_candidate_by_id(candidate_id)
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Trendline shortlist candidate not found")
+    return candidate
+
+@router.post("/trendline-shortlist/clear")
+def clear_trendline_shortlist():
+    trendline_shortlist_engine.clear_shortlist()
+    return {"message": "Trendline shortlist cleared successfully"}
+
+@router.post("/trendline-shortlist/test", response_model=TrendlineShortlistCandidate)
+async def trigger_test_trendline_shortlist(
+    direction: str = Query("BULLISH", description="Direction (BULLISH or BEARISH)")
+):
+    candidate = trendline_shortlist_engine.trigger_test_candidate(direction=direction)
+    await ws_manager.broadcast({
+        "type": "TRENDLINE_SHORTLIST_UPDATED",
+        "candidate": candidate.model_dump()
+    })
+    return candidate
 

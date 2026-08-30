@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../services/api';
+import { MWBreakoutAlert } from '../types';
 import {
   formatCandleTime,
   formatCandleDate,
@@ -36,6 +37,7 @@ interface ChartViewProps {
   keySupports?: number[];
   keyResistances?: number[];
   invalidationLevel?: number | null;
+  onActivePatternChange?: (pattern: any, alert: MWBreakoutAlert | null) => void;
 }
 
 // Module-level instant memory cache for 0ms timeframe switching and zero-latency chart rendering
@@ -47,7 +49,8 @@ export const ChartView: React.FC<ChartViewProps> = ({
   onSelectTimeframe,
   keySupports = [],
   keyResistances = [],
-  invalidationLevel
+  invalidationLevel,
+  onActivePatternChange
 }) => {
   // Timeframe state
   const [internalTimeframe, setInternalTimeframe] = useState<'4H' | '1H' | '15M' | '5M'>(propTimeframe);
@@ -65,8 +68,12 @@ export const ChartView: React.FC<ChartViewProps> = ({
     // Instant cache check on timeframe change
     const nextKey = `${symbol}_${tf}`;
     if (chartMemoryCache.has(nextKey)) {
-      setChartData(chartMemoryCache.get(nextKey));
+      const cached = chartMemoryCache.get(nextKey);
+      setChartData(cached);
       setIsLoading(false);
+      if (onActivePatternChange) {
+        onActivePatternChange(cached.active_wm_pattern || null, cached.active_wm_alert || null);
+      }
     }
     // Reset pan & restore auto-follow on timeframe switch
     setPanOffset(0);
@@ -197,8 +204,12 @@ export const ChartView: React.FC<ChartViewProps> = ({
   const fetchChart = useCallback(async (showSpinner = false) => {
     const cacheKey = `${symbol}_${activeTimeframe}`;
     if (chartMemoryCache.has(cacheKey)) {
-      setChartData(chartMemoryCache.get(cacheKey));
+      const cached = chartMemoryCache.get(cacheKey);
+      setChartData(cached);
       setIsLoading(false);
+      if (onActivePatternChange) {
+        onActivePatternChange(cached.active_wm_pattern || null, cached.active_wm_alert || null);
+      }
     } else if (showSpinner) {
       setIsLoading(true);
     }
@@ -207,6 +218,9 @@ export const ChartView: React.FC<ChartViewProps> = ({
       const data = await api.getChartData(symbol, activeTimeframe, 250);
       chartMemoryCache.set(cacheKey, data);
       setChartData(data);
+      if (onActivePatternChange) {
+        onActivePatternChange(data.active_wm_pattern || null, data.active_wm_alert || null);
+      }
     } catch (err) {
       console.error('Failed to load chart data:', err);
     } finally {

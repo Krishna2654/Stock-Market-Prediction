@@ -118,6 +118,15 @@ export const TrendlinePanel: React.FC<TrendlinePanelProps> = ({
                       <strong className="text-emerald-700">{tl.end_price.toFixed(2)}</strong>
                     </div>
                   </div>
+
+                  {(tl.swing_structure || (tl.r_squared !== undefined && tl.r_squared !== null)) && (
+                    <div className="flex items-center justify-between text-[10px] px-1 text-slate-500 font-mono">
+                      {tl.swing_structure && <span>{tl.swing_structure}</span>}
+                      {tl.r_squared !== undefined && tl.r_squared !== null && (
+                        <span className="font-bold text-emerald-700">R² = {tl.r_squared.toFixed(2)}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -167,6 +176,15 @@ export const TrendlinePanel: React.FC<TrendlinePanelProps> = ({
                       <strong className="text-rose-700">{tl.end_price.toFixed(2)}</strong>
                     </div>
                   </div>
+
+                  {(tl.swing_structure || (tl.r_squared !== undefined && tl.r_squared !== null)) && (
+                    <div className="flex items-center justify-between text-[10px] px-1 text-slate-500 font-mono">
+                      {tl.swing_structure && <span>{tl.swing_structure}</span>}
+                      {tl.r_squared !== undefined && tl.r_squared !== null && (
+                        <span className="font-bold text-emerald-700">R² = {tl.r_squared.toFixed(2)}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

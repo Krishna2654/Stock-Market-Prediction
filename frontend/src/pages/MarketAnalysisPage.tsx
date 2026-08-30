@@ -5,7 +5,8 @@ import {
   InstrumentConfig,
   MultiTimeframeSynthesis,
   AIAnalysisSummary,
-  AlertNotification
+  AlertNotification,
+  MWBreakoutAlert
 } from '../types';
 import { api } from '../services/api';
 import { formatMarketTimeWithSeconds } from '../utils/time';
@@ -14,6 +15,7 @@ import { MultiTimeframeCards } from '../components/MultiTimeframeCards';
 import { WhatJustChangedPanel } from '../components/WhatJustChangedPanel';
 import { TrendlinePanel } from '../components/TrendlinePanel';
 import { HighConfluenceAlertsPanel } from '../components/HighConfluenceAlertsPanel';
+import { MWBreakoutCard } from '../components/MWBreakoutCard';
 import { EvidenceScoreGauge } from '../components/EvidenceScoreGauge';
 import { AISummaryBox } from '../components/AISummaryBox';
 import { SupportResistanceBox } from '../components/SupportResistanceBox';
@@ -21,6 +23,7 @@ import { HypotheticalSetup } from '../components/HypotheticalSetup';
 import { PredictiveScenarioBox } from '../components/PredictiveScenarioBox';
 import {
   ArrowLeft,
+  ArrowRight,
   TrendingUp,
   Radio,
   ArrowUpRight,
@@ -39,6 +42,7 @@ interface MarketAnalysisPageProps {
   instruments: InstrumentConfig[];
   syntheses: Record<string, MultiTimeframeSynthesis>;
   highConfluenceAlerts: HighConfluenceAlert[];
+  mwBreakoutAlerts?: MWBreakoutAlert[];
   onClearHighConfluenceAlerts?: () => void;
   onHighConfluenceAlertTriggered?: (alert: HighConfluenceAlert) => void;
   onOpenAlerts: () => void;
@@ -49,6 +53,7 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
   instruments,
   syntheses,
   highConfluenceAlerts,
+  mwBreakoutAlerts = [],
   onClearHighConfluenceAlerts,
   onHighConfluenceAlertTriggered,
   onOpenAlerts,
@@ -76,6 +81,25 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
 
   const [aiSummary, setAiSummary] = useState<AIAnalysisSummary | null>(null);
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+  const [activeChartAlert, setActiveChartAlert] = useState<MWBreakoutAlert | null>(null);
+
+  // Normalize symbol comparison (removes slashes, dashes, underscores, spaces)
+  const normSym = (s?: string) => (s || '').trim().toUpperCase().replace(/[/_\-\s]/g, '');
+
+  const currentMWAlert = (
+    activeChartAlert && normSym(activeChartAlert.symbol) === normSym(activeSymbol) && activeChartAlert.timeframe === selectedTimeframe
+      ? activeChartAlert
+      : null
+  ) || mwBreakoutAlerts.find(
+    (a) => normSym(a.symbol) === normSym(activeSymbol) && a.timeframe === selectedTimeframe
+  ) || activeChartAlert || mwBreakoutAlerts.find(
+    (a) => normSym(a.symbol) === normSym(activeSymbol)
+  );
+
+  // Reset active chart alert when switching symbol
+  useEffect(() => {
+    setActiveChartAlert(null);
+  }, [activeSymbol]);
 
   // Dynamic Browser Page Title
   useEffect(() => {
@@ -277,6 +301,7 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
         symbol={activeSymbol}
         timeframe={selectedTimeframe}
         onSelectTimeframe={setSelectedTimeframe}
+        onActivePatternChange={(_pat, alert) => setActiveChartAlert(alert)}
         keySupports={
           currentSynthesis?.timeframes[selectedTimeframe]?.support_resistance?.all_levels
             ?.filter((l: any) => l.type === 'SUPPORT')
@@ -296,6 +321,35 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
           trendlines={currentSynthesis.timeframes[selectedTimeframe]?.trendlines || []}
           timeframe={selectedTimeframe}
         />
+      )}
+
+      {/* 4.5. DEDICATED M/W BREAKOUT CARD (Directly below Chart & Trendlines) */}
+      {currentMWAlert && (
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-purple-100 text-purple-700">
+                <Target className="h-4 w-4" />
+              </div>
+              <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                <span>M/W BREAKOUTS</span>
+                <span className="text-xs font-mono font-normal text-slate-400">•</span>
+                <span className="font-bold text-slate-700">{currentMWAlert.symbol} ({currentMWAlert.timeframe})</span>
+              </h3>
+              <span className="text-[9px] bg-purple-600 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-2xs">
+                CHART SYNCED
+              </span>
+            </div>
+            <Link
+              to="/mw-breakouts"
+              className="text-xs font-bold text-purple-700 hover:text-purple-900 flex items-center gap-1 transition-colors group"
+            >
+              <span>View All M/W Breakouts</span>
+              <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </Link>
+          </div>
+          <MWBreakoutCard alert={currentMWAlert} isHero={true} />
+        </div>
       )}
 
       {/* 5. DEDICATED HIGH-CONFLUENCE BREAKOUT ALERTS PANEL */}
