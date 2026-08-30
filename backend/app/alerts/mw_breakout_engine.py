@@ -188,7 +188,9 @@ class MWBreakoutAlertEngine:
             )
             nearest_sup = t_analysis.nearest_obstacle if not is_w and t_analysis else None
             nearest_res = t_analysis.nearest_obstacle if is_w and t_analysis else None
-            inval_level = t_analysis.invalidation_level if t_analysis else pat.neckline_price
+            inval_level = t_analysis.invalidation_level if t_analysis else (
+                pat.prev_swing_sl_price or (min(pat.s1_price, pat.s2_price) if is_w else max(pat.s1_price, pat.s2_price))
+            )
 
             # Breakout candle metrics
             b_open = pat.neckline_price
@@ -410,8 +412,9 @@ class MWBreakoutAlertEngine:
                     pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height
                 )
                 nearest_sup = t_analysis.nearest_obstacle if not is_w and t_analysis else None
-                nearest_res = t_analysis.nearest_obstacle if is_w and t_analysis else None
-                inval_level = t_analysis.invalidation_level if t_analysis else pat.neckline_price
+                inval_level = t_analysis.invalidation_level if t_analysis else (
+                    pat.prev_swing_sl_price or (min(pat.s1_price, pat.s2_price) if is_w else max(pat.s1_price, pat.s2_price))
+                )
 
                 alert = MWBreakoutAlert(
                     alert_id=stable_alert_id,

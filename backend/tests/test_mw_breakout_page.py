@@ -2,7 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.alerts.mw_breakout_engine import mw_breakout_engine, MWBreakoutAlertEngine
-from app.models.schemas import MWBreakoutAlert, MultiTimeframeSynthesis, EvidenceScoreBreakdown
+from app.models.schemas import MWBreakoutAlert, MultiTimeframeSynthesis, EvidenceScoreBreakdown, SwingPoint, Candle
+from app.market_structure.precision_breakouts import PrecisionBreakoutDetector
 
 client = TestClient(app)
 
@@ -209,14 +210,19 @@ def test_3_w_breakout_reaches_target_2():
 
 def test_4_w_breakout_reaches_sl_before_target_1():
     """TEST 4: W breakout price reaches SL before Target 1: Status = SL HIT."""
-    # W alert: neckline=24850, Invalidation SL=24850
+    # W alert: neckline=24850, Invalidation SL=24480 (previous swing low below W structure)
     res = client.post("/api/alerts/mw-breakouts/test?pattern_type=W")
     assert res.status_code == 200
     w_alert = mw_breakout_engine.get_alerts()[0]
     assert w_alert.status == "TARGET OPEN"
+    assert w_alert.invalidation_level < w_alert.neckline_price
 
-    # Price falls to 24800 (below SL) before hitting target
+    # Retest of neckline (24800) does NOT hit SL because SL is 24480!
     mw_breakout_engine._update_existing_alert_statuses(_make_synth(w_alert.symbol, 24800.0))
+    assert w_alert.status == "TARGET OPEN"
+
+    # Price falls to 24450 (below SL 24480) before hitting target -> SL HIT
+    mw_breakout_engine._update_existing_alert_statuses(_make_synth(w_alert.symbol, 24450.0))
     assert w_alert.status == "SL HIT"
 
     # Verify SL HIT is never overwritten by a later bounce
@@ -263,13 +269,19 @@ def test_6_m_breakdown_reaches_target_2():
 
 def test_7_m_breakdown_reaches_sl_before_target():
     """TEST 7: M breakdown reaches SL before target: Status = SL HIT."""
+    # M alert: neckline=57435, Invalidation SL=57530 (previous swing high above M structure)
     res = client.post("/api/alerts/mw-breakouts/test?pattern_type=M")
     assert res.status_code == 200
     m_alert = mw_breakout_engine.get_alerts()[0]
     assert m_alert.status == "TARGET OPEN"
+    assert m_alert.invalidation_level > m_alert.neckline_price
 
-    # Price rises to 57450 (above invalidation SL 57435) before hitting targets
+    # Retest of neckline (57450) does NOT hit SL because SL is 57530!
     mw_breakout_engine._update_existing_alert_statuses(_make_synth(m_alert.symbol, 57450.0))
+    assert m_alert.status == "TARGET OPEN"
+
+    # Price rises to 57550 (above SL 57530) before hitting targets -> SL HIT
+    mw_breakout_engine._update_existing_alert_statuses(_make_synth(m_alert.symbol, 57550.0))
     assert m_alert.status == "SL HIT"
 
     # Verify SL HIT cannot be overwritten by later drop
@@ -332,7 +344,8 @@ def test_10_view_details_on_old_w_breakout():
     assert data["breakout_close"] == 24910.0
     assert data["measured_target"] == 25200.0
     assert data["target_2"] == 25350.0
-    assert data["invalidation_level"] == 24850.0
+    assert data["invalidation_level"] == 24480.0
+    assert data["invalidation_level"] != data["neckline_price"]
     assert data["quality_score"] == 87
     assert data["status"] in ["TARGET OPEN", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT"]
 
@@ -360,7 +373,8 @@ def test_11_view_details_on_old_m_breakdown():
     assert data["breakout_close"] == 57300.0
     assert data["measured_target"] == 57370.0
     assert data["target_2"] == 57150.0
-    assert data["invalidation_level"] == 57435.0
+    assert data["invalidation_level"] == 57530.0
+    assert data["invalidation_level"] != data["neckline_price"]
     assert data["quality_score"] == 86
 
 def test_12_current_market_no_longer_detects_old_pattern_view_details_still_works():
@@ -486,4 +500,158 @@ def test_15_chart_sync_deduplication():
     count_2 = len(client.get("/api/alerts/mw-breakouts?symbol=BTC/USD&timeframe=15M").json())
 
     assert count_1 == count_2, f"Duplicate cards generated: count_1={count_1}, count_2={count_2}"
+
+def test_16_w_pattern_stop_loss_below_structure_and_not_neckline():
+    """TEST 16: W breakout Stop Loss is below W structure (never equals neckline) and retests do not trigger SL HIT."""
+    target_res = PrecisionBreakoutDetector.calculate_pattern_targets(
+        pattern_type="W",
+        s1_price=100.0,
+        s2_price=101.0,
+        neckline_price=110.0,
+        breakout_close=112.0,
+        prev_swing_sl=98.0
+    )
+    # Stop loss must be previous swing low (98.0)
+    assert target_res.invalidation_level == 98.0
+    assert target_res.invalidation_level < target_res.retest_level
+    assert target_res.retest_level == 110.0
+
+    # Test lifecycle: neckline retest (e.g. 109.5) does NOT trigger SL HIT
+    alert = MWBreakoutAlert(
+        alert_id="mw_test_w_sl_independence",
+        alert_type="W_BREAKOUT_CONFIRMED",
+        pattern_type="W",
+        direction="UP",
+        symbol="TEST",
+        ticker="TEST",
+        timeframe="15M",
+        pattern_id="W_TEST_IND",
+        s1_price=100.0,
+        s1_timestamp="2026-08-30T10:00:00Z",
+        s2_price=101.0,
+        s2_timestamp="2026-08-30T10:30:00Z",
+        neckline_price=110.0,
+        neckline_timestamp="2026-08-30T10:15:00Z",
+        pattern_height=10.0,
+        breakout_candle_timestamp="2026-08-30T10:45:00Z",
+        breakout_open=109.0,
+        breakout_high=112.5,
+        breakout_low=108.8,
+        breakout_close=112.0,
+        trendline_price=110.0,
+        ema20_price=108.0,
+        measured_target=120.0,
+        target_2=130.0,
+        invalidation_level=98.0,
+        quality_score=90,
+        status="TARGET OPEN",
+        event_created_at="2026-08-30T10:45:00Z"
+    )
+
+    # Retest dipping below neckline to 109.0
+    mw_breakout_engine._evaluate_single_alert_status(alert, [
+        Candle(timestamp="2026-08-30T11:00:00Z", open=112.0, high=112.2, low=109.0, close=109.5, volume=5000)
+    ])
+    assert alert.status == "TARGET OPEN", "Neckline retest must NOT trigger SL HIT"
+
+    # Deep drop reaching swing SL (97.5 <= 98.0)
+    mw_breakout_engine._evaluate_single_alert_status(alert, [
+        Candle(timestamp="2026-08-30T11:15:00Z", open=109.5, high=109.5, low=97.5, close=97.8, volume=5000)
+    ])
+    assert alert.status == "SL HIT", "Breach of swing SL must trigger SL HIT"
+
+def test_17_m_pattern_stop_loss_above_structure_and_not_neckline():
+    """TEST 17: M breakdown Stop Loss is above M structure (never equals neckline) and retests do not trigger SL HIT."""
+    target_res = PrecisionBreakoutDetector.calculate_pattern_targets(
+        pattern_type="M",
+        s1_price=200.0,
+        s2_price=199.0,
+        neckline_price=190.0,
+        breakout_close=188.0,
+        prev_swing_sl=203.0
+    )
+    # Stop loss must be previous swing high (203.0)
+    assert target_res.invalidation_level == 203.0
+    assert target_res.invalidation_level > target_res.retest_level
+    assert target_res.retest_level == 190.0
+
+    # Test lifecycle: neckline retest (e.g. 191.0) does NOT trigger SL HIT
+    alert = MWBreakoutAlert(
+        alert_id="mw_test_m_sl_independence",
+        alert_type="M_BREAKDOWN_CONFIRMED",
+        pattern_type="M",
+        direction="DOWN",
+        symbol="TEST",
+        ticker="TEST",
+        timeframe="15M",
+        pattern_id="M_TEST_IND",
+        s1_price=200.0,
+        s1_timestamp="2026-08-30T10:00:00Z",
+        s2_price=199.0,
+        s2_timestamp="2026-08-30T10:30:00Z",
+        neckline_price=190.0,
+        neckline_timestamp="2026-08-30T10:15:00Z",
+        pattern_height=10.0,
+        breakout_candle_timestamp="2026-08-30T10:45:00Z",
+        breakout_open=191.0,
+        breakout_high=191.2,
+        breakout_low=187.5,
+        breakout_close=188.0,
+        trendline_price=190.0,
+        ema20_price=192.0,
+        measured_target=180.0,
+        target_2=170.0,
+        invalidation_level=203.0,
+        quality_score=90,
+        status="TARGET OPEN",
+        event_created_at="2026-08-30T10:45:00Z"
+    )
+
+    # Retest bouncing above neckline to 191.0
+    mw_breakout_engine._evaluate_single_alert_status(alert, [
+        Candle(timestamp="2026-08-30T11:00:00Z", open=188.0, high=191.0, low=187.8, close=190.5, volume=5000)
+    ])
+    assert alert.status == "TARGET OPEN", "Neckline retest must NOT trigger SL HIT"
+
+    # Rally reaching swing SL (203.5 >= 203.0)
+    mw_breakout_engine._evaluate_single_alert_status(alert, [
+        Candle(timestamp="2026-08-30T11:15:00Z", open=190.5, high=203.5, low=190.5, close=202.0, volume=5000)
+    ])
+    assert alert.status == "SL HIT", "Breach of swing SL must trigger SL HIT"
+
+def test_18_late_stage_5th_wave_pattern_rejected():
+    """TEST 18: Pattern forming after extended 5-wave trending sequence is rejected."""
+    # 3 consecutive higher highs leading into H1:
+    swings = [
+        SwingPoint(index=2, price=100.0, timestamp="2026-08-25T10:10:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=4, price=95.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=6, price=105.0, timestamp="2026-08-25T10:30:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=8, price=101.0, timestamp="2026-08-25T10:40:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=10, price=110.0, timestamp="2026-08-25T10:50:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=12, price=106.0, timestamp="2026-08-25T11:00:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        # H1
+        SwingPoint(index=14, price=115.0, timestamp="2026-08-25T11:10:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        # Mid Trough
+        SwingPoint(index=18, price=111.0, timestamp="2026-08-25T11:30:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        # H2
+        SwingPoint(index=22, price=114.9, timestamp="2026-08-25T11:50:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)
+    ]
+    candles = [
+        Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=100, high=116, low=94, close=105, volume=1000)
+        for i in range(35)
+    ]
+
+    events, confirmed, active, candidates = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles,
+        swings=swings,
+        symbol="TEST",
+        timeframe="15M",
+        trendlines=[],
+        df_indicators=None,
+        atr_val=2.0
+    )
+
+    rejected_5w = [c for c in candidates if c.status == "REJECTED" and "extended 5-wave" in (c.rejection_reason or "")]
+    assert len(rejected_5w) > 0, "Expected pattern to be rejected due to extended 5-wave movement"
+
 

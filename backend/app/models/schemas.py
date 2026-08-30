@@ -75,6 +75,8 @@ class WMPatternStructure(BaseModel):
     target_analysis: Optional[PatternTargetAnalysis] = None
     is_active: bool = False
     rejection_reason: Optional[str] = None
+    prev_swing_sl_price: Optional[float] = None
+    prev_swing_sl_time: Optional[str] = None
 
 class StructureBreakEvent(BaseModel):
     id: str

@@ -298,6 +298,7 @@ async def trigger_test_mw_breakout(
             s2_price=24520.0,
             neckline_price=24850.0,
             breakout_close=24910.0,
+            prev_swing_sl=24480.0,
             key_resistances=[25050.0, 25350.0],
             quality_score=87,
             quality_breakdown={"structure": 20, "swing_quality": 15, "depth": 15, "symmetry": 10, "separation": 10, "neckline_quality": 10, "trendline_confluence": 10, "ema_confluence": 5, "breakout_candle": 5}
@@ -330,7 +331,7 @@ async def trigger_test_mw_breakout(
             measured_target=w_targets.measured_target,
             target_2=w_targets.target_2 or 25550.0,
             nearest_resistance=25050.0,
-            invalidation_level=24850.0,
+            invalidation_level=w_targets.invalidation_level,
             quality_score=87,
             quality_breakdown={"structure": 20, "swing_quality": 15, "depth": 15, "symmetry": 10, "separation": 10, "neckline_quality": 10, "trendline_confluence": 10, "ema_confluence": 5, "breakout_candle": 5},
             status="TARGET OPEN",
@@ -344,6 +345,7 @@ async def trigger_test_mw_breakout(
             s2_price=57480.0,
             neckline_price=57435.0,
             breakout_close=57300.0,
+            prev_swing_sl=57530.0,
             key_supports=[57380.0, 57150.0],
             quality_score=86,
             quality_breakdown={"structure": 20, "swing_quality": 15, "depth": 15, "symmetry": 10, "separation": 10, "neckline_quality": 8, "trendline_confluence": 8, "ema_confluence": 5, "breakout_candle": 5}
@@ -376,7 +378,7 @@ async def trigger_test_mw_breakout(
             measured_target=m_targets.measured_target,
             target_2=m_targets.target_2 or 57305.0,
             nearest_support=57380.0,
-            invalidation_level=57435.0,
+            invalidation_level=m_targets.invalidation_level,
             quality_score=86,
             quality_breakdown={"structure": 20, "swing_quality": 15, "depth": 15, "symmetry": 10, "separation": 10, "neckline_quality": 8, "trendline_confluence": 8, "ema_confluence": 5, "breakout_candle": 5},
             status="TARGET OPEN",

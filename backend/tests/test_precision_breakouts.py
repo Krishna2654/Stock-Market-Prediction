@@ -1110,7 +1110,8 @@ def test_wm_sec55_test14_valid_w_measured_target_calculated():
     # Measured Target = 24850 + 350 = 25200.0
     assert target_res.pattern_height == 350.0
     assert target_res.measured_target == 25200.0
-    assert target_res.invalidation_level == 24850.0
+    assert target_res.invalidation_level == 24500.0  # Previous swing low / structure low, not neckline
+    assert target_res.invalidation_level < target_res.retest_level
 
 def test_wm_sec55_test15_valid_m_measured_target_calculated():
     """TEST 15: Valid M breakout -> Measured target = Neckline - Height."""
@@ -1125,7 +1126,8 @@ def test_wm_sec55_test15_valid_m_measured_target_calculated():
     # Measured Target = 57435 - 65 = 57370.0
     assert target_res.pattern_height == 65.0
     assert target_res.measured_target == 57370.0
-    assert target_res.invalidation_level == 57435.0
+    assert target_res.invalidation_level == 57500.0  # Previous swing high / structure high, not neckline
+    assert target_res.invalidation_level > target_res.retest_level
 
 def test_wm_sec55_test16_major_resistance_before_w_target_detected():
     """TEST 16: Major resistance between neckline (24850) and target (25200) -> Detected as nearest obstacle."""
@@ -1208,7 +1210,7 @@ def test_wm_sec55_test19_historical_backtest_no_future_leakage():
     assert breaks[0].timestamp == breakout_timestamp
 
 def test_wm_sec55_test20_pattern_invalidation_handling():
-    """TEST 20: Invalidation level is accurately established at broken neckline."""
+    """TEST 20: Invalidation level is accurately established at previous swing low below structure (never neckline)."""
     target_res = PrecisionBreakoutDetector.calculate_pattern_targets(
         pattern_type="W",
         s1_price=24500.0,
@@ -1216,7 +1218,8 @@ def test_wm_sec55_test20_pattern_invalidation_handling():
         neckline_price=24850.0,
         breakout_close=24910.0
     )
-    assert target_res.invalidation_level == 24850.0
+    assert target_res.invalidation_level == 24500.0
+    assert target_res.invalidation_level < target_res.retest_level
     assert target_res.pattern_status == "CONFIRMED_BREAKOUT"
 
 def test_one_pattern_one_breakout_no_repeating_across_continuous_downtrend():

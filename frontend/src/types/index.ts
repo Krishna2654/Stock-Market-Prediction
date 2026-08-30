@@ -284,6 +284,8 @@ export interface WMPatternStructure {
   target_analysis?: PatternTargetAnalysis | null;
   is_active: boolean;
   rejection_reason?: string | null;
+  prev_swing_sl_price?: number | null;
+  prev_swing_sl_time?: string | null;
 }
 
 export interface HighConfluenceAlert {
