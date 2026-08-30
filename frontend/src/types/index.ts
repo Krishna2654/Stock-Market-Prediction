@@ -371,7 +371,7 @@ export interface MWBreakoutAlert {
   quality_breakdown?: Record<string, number>;
 
   // Lifecycle & status tracking
-  status: "ACTIVE" | "TARGET_1_HIT" | "TARGET_2_HIT" | "INVALIDATED" | "EXPIRED";
+  status: "TARGET OPEN" | "TARGET 1 HIT" | "TARGET 2 HIT" | "SL HIT" | "ACTIVE" | "TARGET_1_HIT" | "TARGET_2_HIT" | "INVALIDATED" | "EXPIRED";
   event_created_at: string;
   read: boolean;
 }

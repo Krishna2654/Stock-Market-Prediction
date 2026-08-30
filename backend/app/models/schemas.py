@@ -376,7 +376,7 @@ class MWBreakoutAlert(BaseModel):
     quality_breakdown: Dict[str, int] = {}
 
     # Lifecycle & status tracking
-    status: Literal["ACTIVE", "TARGET_1_HIT", "TARGET_2_HIT", "INVALIDATED", "EXPIRED"] = "ACTIVE"
+    status: Literal["TARGET OPEN", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT", "ACTIVE", "TARGET_1_HIT", "INVALIDATED", "EXPIRED"] = "TARGET OPEN"
     event_created_at: str
     read: bool = False
 

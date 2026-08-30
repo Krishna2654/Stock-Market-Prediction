@@ -189,13 +189,13 @@ class PrecisionBreakoutDetector:
             nearest_obstacle = min(intervening) if intervening else None
 
             above_target = [r for r in key_resistances if r >= (measured_target - 0.05)]
-            target_2 = min(above_target) if above_target else None
+            target_2 = min(above_target) if above_target else round(neckline_price + 2.0 * w_height, 2)
 
             target_zone = f"₹{nearest_obstacle:.2f}–₹{measured_target:.2f}" if nearest_obstacle else f"₹{measured_target:.2f}"
 
             interp = (
                 f"Confirmed W-pattern breakout with trendline and 20 EMA confluence. "
-                f"The measured target is ₹{measured_target:,.2f}"
+                f"The measured target 1 is ₹{measured_target:,.2f}, Target 2 is ₹{target_2:,.2f}"
                 + (f", subject to intervening resistance at ₹{nearest_obstacle:,.2f}." if nearest_obstacle else ".")
             )
 
@@ -225,7 +225,7 @@ class PrecisionBreakoutDetector:
             nearest_obstacle = max(intervening) if intervening else None
 
             below_target = [s for s in key_supports if s <= (measured_target + 0.05)]
-            target_2 = max(below_target) if below_target else None
+            target_2 = max(below_target) if below_target else round(neckline_price - 2.0 * m_height, 2)
 
             target_zone = f"₹{measured_target:.2f}–₹{nearest_obstacle:.2f}" if nearest_obstacle else f"₹{measured_target:.2f}"
 

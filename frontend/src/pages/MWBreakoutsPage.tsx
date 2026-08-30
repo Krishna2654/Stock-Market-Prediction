@@ -40,7 +40,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
   // Filters State
   const [patternTypeFilter, setPatternTypeFilter] = useState<'ALL' | 'W' | 'M'>('ALL');
   const [timeframeFilter, setTimeframeFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'INVALIDATED'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [dateFilter, setDateFilter] = useState<'latest' | 'today' | '24h' | '7d' | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -48,22 +48,24 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
 
   // Dynamic Browser Page Title
   useEffect(() => {
-    document.title = 'M/W Breakouts — Confirmed Pattern Breakout Signals';
-    // Mark alerts as read on page visit
-    api.markAllMWBreakoutsRead().catch((e) => console.warn('Mark read warning:', e));
-    loadStats();
+    document.title = 'M/W Breakouts — Quantitative Pattern Confluence';
   }, []);
 
+  // Fetch Summary Statistics
   const loadStats = async () => {
     try {
-      const s = await api.getMWBreakoutStats();
-      setStats(s);
-    } catch (e) {
-      console.warn('Failed to load stats:', e);
+      const data = await api.getMWBreakoutStats();
+      setStats(data);
+    } catch (err) {
+      console.warn('Failed to load M/W stats:', err);
     }
   };
 
-  // Filtered Alerts List (Strict Real Data Pipeline)
+  useEffect(() => {
+    loadStats();
+  }, [alerts]);
+
+  // Filtered & Sorted Alerts
   const filteredAlerts = useMemo(() => {
     let result = [...alerts];
 
@@ -77,10 +79,18 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
       result = result.filter((a) => a.timeframe.toUpperCase() === timeframeFilter.toUpperCase());
     }
 
-    // 3. Status Filter (ACTIVE / COMPLETED / INVALIDATED)
+    // 3. Status Filter (TARGET OPEN / TARGET 1 HIT / TARGET 2 HIT / SL HIT / ALL)
     if (statusFilter !== 'ALL') {
       if (statusFilter === 'COMPLETED') {
-        result = result.filter((a) => a.status === 'TARGET_1_HIT' || a.status === 'TARGET_2_HIT');
+        result = result.filter((a) => a.status === 'TARGET 1 HIT' || a.status === 'TARGET 2 HIT' || a.status === 'TARGET_1_HIT' || a.status === 'TARGET_2_HIT');
+      } else if (statusFilter === 'TARGET OPEN' || statusFilter === 'ACTIVE') {
+        result = result.filter((a) => a.status === 'TARGET OPEN' || a.status === 'ACTIVE');
+      } else if (statusFilter === 'SL HIT' || statusFilter === 'INVALIDATED') {
+        result = result.filter((a) => a.status === 'SL HIT' || a.status === 'INVALIDATED');
+      } else if (statusFilter === 'TARGET 1 HIT') {
+        result = result.filter((a) => a.status === 'TARGET 1 HIT' || a.status === 'TARGET_1_HIT');
+      } else if (statusFilter === 'TARGET 2 HIT') {
+        result = result.filter((a) => a.status === 'TARGET 2 HIT' || a.status === 'TARGET_2_HIT');
       } else {
         result = result.filter((a) => a.status === statusFilter);
       }
@@ -240,10 +250,10 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
         <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
             <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-            <span>Active Signals</span>
+            <span>Target Open</span>
           </div>
           <div className="text-xl font-black text-blue-600 mt-1">
-            {stats?.active_count ?? alerts.filter((a) => a.status === 'ACTIVE').length}
+            {stats?.active_count ?? alerts.filter((a) => a.status === 'TARGET OPEN' || a.status === 'ACTIVE').length}
           </div>
         </div>
 
@@ -253,17 +263,17 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <span>Target Hit</span>
           </div>
           <div className="text-xl font-black text-emerald-600 mt-1">
-            {stats?.target_hit_count ?? alerts.filter((a) => a.status === 'TARGET_1_HIT' || a.status === 'TARGET_2_HIT').length}
+            {stats?.target_hit_count ?? alerts.filter((a) => a.status === 'TARGET 1 HIT' || a.status === 'TARGET 2 HIT' || a.status === 'TARGET_1_HIT' || a.status === 'TARGET_2_HIT').length}
           </div>
         </div>
 
         <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
             <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
-            <span>Invalidated</span>
+            <span>SL Hit</span>
           </div>
           <div className="text-xl font-black text-rose-600 mt-1">
-            {stats?.invalidated_count ?? alerts.filter((a) => a.status === 'INVALIDATED').length}
+            {stats?.invalidated_count ?? alerts.filter((a) => a.status === 'SL HIT' || a.status === 'INVALIDATED').length}
           </div>
         </div>
       </div>
@@ -322,18 +332,24 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
           </div>
 
           {/* Status Filter */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
-            {(['ALL', 'ACTIVE', 'COMPLETED', 'INVALIDATED'] as const).map((st) => (
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 flex-wrap">
+            {[
+              { id: 'ALL', label: 'ALL' },
+              { id: 'TARGET OPEN', label: 'OPEN' },
+              { id: 'TARGET 1 HIT', label: 'T1 HIT' },
+              { id: 'TARGET 2 HIT', label: 'T2 HIT' },
+              { id: 'SL HIT', label: 'SL HIT' }
+            ].map((st) => (
               <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  statusFilter === st
+                key={st.id}
+                onClick={() => setStatusFilter(st.id)}
+                className={`min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  statusFilter === st.id
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {st}
+                {st.label}
               </button>
             ))}
           </div>

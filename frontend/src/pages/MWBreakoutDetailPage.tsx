@@ -226,17 +226,17 @@ export const MWBreakoutDetailPage: React.FC = () => {
     // 2. Draw Clean Horizontal Neckline
     const yNeckline = getY(alert.neckline_price);
     ctx.strokeStyle = '#9333ea';
-    ctx.lineWidth = 1.8;
-    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(paddingLeft, yNeckline);
     ctx.lineTo(width - paddingRight, yNeckline);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Neckline Badge
-    const badgeW = isMobile ? 54 : 86;
-    const badgeH = isMobile ? 13 : 16;
+    // Compact Right-Edge Badges
+    const badgeW = isMobile ? 38 : 56;
+    const badgeH = isMobile ? 12 : 16;
     const badgeFont = isMobile ? 'bold 7.5px sans-serif' : 'bold 9px sans-serif';
 
     ctx.fillStyle = '#9333ea';
@@ -262,7 +262,25 @@ export const MWBreakoutDetailPage: React.FC = () => {
     ctx.fillRect(width - paddingRight + 2, yTarget - (isMobile ? 6.5 : 8), badgeW, badgeH);
     ctx.fillStyle = '#ffffff';
     ctx.font = badgeFont;
-    ctx.fillText(isMobile ? `T:${alert.measured_target.toFixed(0)}` : `TARGET: ${alert.measured_target.toFixed(1)}`, width - paddingRight + 4, yTarget + (isMobile ? 2.5 : 3));
+    ctx.fillText(isMobile ? `T1:${alert.measured_target.toFixed(0)}` : `TARGET 1: ${alert.measured_target.toFixed(1)}`, width - paddingRight + 4, yTarget + (isMobile ? 2.5 : 3));
+
+    // 3b. Draw Clean Horizontal Target 2
+    const yTarget2 = getY(target2Val);
+    ctx.strokeStyle = '#047857';
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(paddingLeft, yTarget2);
+    ctx.lineTo(width - paddingRight, yTarget2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Target 2 Badge
+    ctx.fillStyle = '#047857';
+    ctx.fillRect(width - paddingRight + 2, yTarget2 - (isMobile ? 6.5 : 8), badgeW, badgeH);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = badgeFont;
+    ctx.fillText(isMobile ? `T2:${target2Val.toFixed(0)}` : `TARGET 2: ${target2Val.toFixed(1)}`, width - paddingRight + 4, yTarget2 + (isMobile ? 2.5 : 3));
 
     // 4. Draw Invalidation Level
     const yInval = getY(alert.invalidation_level);
@@ -280,7 +298,7 @@ export const MWBreakoutDetailPage: React.FC = () => {
     ctx.fillRect(width - paddingRight + 2, yInval - (isMobile ? 6.5 : 8), badgeW, badgeH);
     ctx.fillStyle = '#ffffff';
     ctx.font = badgeFont;
-    ctx.fillText(isMobile ? `SL:${alert.invalidation_level.toFixed(0)}` : `INVAL: ${alert.invalidation_level.toFixed(1)}`, width - paddingRight + 4, yInval + (isMobile ? 2.5 : 3));
+    ctx.fillText(isMobile ? `SL:${alert.invalidation_level.toFixed(0)}` : `SL: ${alert.invalidation_level.toFixed(1)}`, width - paddingRight + 4, yInval + (isMobile ? 2.5 : 3));
 
     // 5. Draw Breakout Candle Marker Badge
     const breakLocalIdx = visibleCandles.findIndex((c) => c.timestamp === alert.breakout_candle_timestamp);
@@ -331,6 +349,18 @@ export const MWBreakoutDetailPage: React.FC = () => {
 
   const isW = alert.pattern_type === 'W';
   const currSym = alert.symbol.includes('BTC') || alert.symbol.includes('ETH') ? '$' : '₹';
+
+  const getNormalizedStatus = (st: string) => {
+    if (st === 'TARGET 2 HIT' || st === 'TARGET_2_HIT') return 'TARGET 2 HIT';
+    if (st === 'TARGET 1 HIT' || st === 'TARGET_1_HIT') return 'TARGET 1 HIT';
+    if (st === 'SL HIT' || st === 'INVALIDATED') return 'SL HIT';
+    return 'TARGET OPEN';
+  };
+
+  const normStatus = getNormalizedStatus(alert.status);
+  const target2Val = alert.target_2 != null ? alert.target_2 : (
+    isW ? alert.neckline_price + 2.0 * alert.pattern_height : alert.neckline_price - 2.0 * alert.pattern_height
+  );
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-4 sm:space-y-6 min-w-0">
@@ -394,21 +424,23 @@ export const MWBreakoutDetailPage: React.FC = () => {
         <div className="flex sm:flex-col items-end justify-between sm:justify-center gap-2">
           <div
             className={`px-3.5 py-1.5 rounded-xl text-xs font-black tracking-wide flex items-center gap-1.5 border shadow-2xs ${
-              alert.status === 'TARGET_1_HIT'
+              normStatus === 'TARGET 2 HIT'
+                ? 'bg-emerald-700 text-white border-emerald-800'
+                : normStatus === 'TARGET 1 HIT'
                 ? 'bg-emerald-600 text-white border-emerald-700'
-                : alert.status === 'INVALIDATED'
+                : normStatus === 'SL HIT'
                 ? 'bg-rose-600 text-white border-rose-700'
                 : 'bg-blue-600 text-white border-blue-700'
             }`}
           >
-            {alert.status === 'TARGET_1_HIT' ? (
+            {normStatus === 'TARGET 2 HIT' || normStatus === 'TARGET 1 HIT' ? (
               <CheckCircle2 className="h-4 w-4" />
-            ) : alert.status === 'INVALIDATED' ? (
+            ) : normStatus === 'SL HIT' ? (
               <XCircle className="h-4 w-4" />
             ) : (
               <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
             )}
-            <span>STATUS: {alert.status}</span>
+            <span>STATUS: {normStatus}</span>
           </div>
 
           <div className="text-right">
@@ -423,70 +455,74 @@ export const MWBreakoutDetailPage: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
             <BarChart2 className="h-4 w-4 text-blue-600" />
-            <span>FOCUSED PATTERN STRUCTURE & TARGET CHART</span>
+            <span>Focused Pattern Chart • {alert.symbol} ({alert.timeframe})</span>
           </div>
-          <span className="text-[11px] font-medium text-slate-500">
-            Auto-centered on {alert.symbol} ({alert.timeframe}) breakout structure
-          </span>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-purple-500" /> Neckline
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" /> Target 1 & 2
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-rose-500" /> SL
+          </div>
         </div>
 
-        <div className="relative w-full h-[360px] sm:h-[420px] rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-sm">
-          <canvas ref={canvasRef} className="w-full h-full block" />
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-2 sm:p-4 shadow-xs overflow-hidden">
+          <canvas
+            ref={canvasRef}
+            className="w-full rounded-xl bg-slate-50/50 block"
+            style={{ width: '100%', height: '360px' }}
+          />
         </div>
       </div>
 
-      {/* Structured Metrics 4-Column Grid */}
+      {/* Detailed Technical Metrics Grid (4 Cards) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Pattern Geometry */}
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2.5">
           <div className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-1 flex items-center justify-between">
             <span>Pattern Geometry</span>
-            <Target className="h-3.5 w-3.5 text-purple-600" />
+            <Layers className="h-3.5 w-3.5 text-purple-600" />
           </div>
           <div className="space-y-1.5 text-xs">
             <div className="flex justify-between">
-              <span className="text-slate-600">{isW ? 'Low 1 (S1):' : 'High 1 (S1):'}</span>
+              <span className="text-slate-600">{isW ? 'Low 1 (Swing 1):' : 'High 1 (Swing 1):'}</span>
               <span className="font-mono font-bold text-slate-900">{currSym}{alert.s1_price.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-600">{isW ? 'Low 2 (S2):' : 'High 2 (S2):'}</span>
+              <span className="text-slate-600">{isW ? 'Low 2 (Swing 2):' : 'High 2 (Swing 2):'}</span>
               <span className="font-mono font-bold text-slate-900">{currSym}{alert.s2_price.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-600">Neckline:</span>
-              <span className="font-mono font-bold text-purple-700">{currSym}{alert.neckline_price.toLocaleString()}</span>
+              <span className="text-slate-600">Neckline Pivot:</span>
+              <span className="font-mono font-bold text-purple-600">{currSym}{alert.neckline_price.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between pt-1 border-t border-slate-100">
+            <div className="flex justify-between">
               <span className="text-slate-600">Pattern Height:</span>
-              <span className="font-mono font-semibold text-slate-900">{currSym}{alert.pattern_height.toFixed(2)}</span>
+              <span className="font-mono font-bold text-slate-700">{currSym}{alert.pattern_height.toLocaleString()}</span>
             </div>
           </div>
         </div>
 
-        {/* Card 2: Breakout Confirmation */}
+        {/* Card 2: Breakout Candle Execution */}
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2.5">
           <div className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-1 flex items-center justify-between">
-            <span>Breakout Confirmation</span>
-            <Zap className="h-3.5 w-3.5 text-amber-500" />
+            <span>Breakout Execution</span>
+            <Zap className="h-3.5 w-3.5 text-blue-600" />
           </div>
           <div className="space-y-1.5 text-xs">
             <div className="flex justify-between">
               <span className="text-slate-600">Breakout Close:</span>
-              <span className={`font-mono font-bold ${isW ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {currSym}{alert.breakout_close.toLocaleString()}
-              </span>
+              <span className="font-mono font-bold text-blue-600">{currSym}{alert.breakout_close.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-600">Trendline Level:</span>
-              <span className="font-mono text-slate-800">{currSym}{alert.trendline_price.toLocaleString()} ✓</span>
+              <span className="text-slate-600">Candle High/Low:</span>
+              <span className="font-mono text-slate-700">{currSym}{alert.breakout_high.toLocaleString()} / {currSym}{alert.breakout_low.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-600">20 EMA Level:</span>
-              <span className="font-mono text-slate-800">{currSym}{alert.ema20_price.toLocaleString()} ✓</span>
-            </div>
-            <div className="flex justify-between pt-1 border-t border-slate-100">
               <span className="text-slate-600">Relative Volume:</span>
-              <span className="font-mono font-bold text-blue-600">{alert.relative_volume}× ✓</span>
+              <span className="font-mono font-bold text-emerald-600">{alert.relative_volume}× Volume Surge</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Trendline / 20 EMA:</span>
+              <span className="font-mono text-slate-700">{currSym}{alert.trendline_price.toLocaleString()} / {currSym}{alert.ema20_price.toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -499,15 +535,25 @@ export const MWBreakoutDetailPage: React.FC = () => {
           </div>
           <div className="space-y-1.5 text-xs">
             <div className="flex justify-between">
-              <span className="text-slate-600">Measured Target 1:</span>
+              <span className="text-slate-600">Target 1:</span>
               <span className="font-mono font-black text-emerald-600">{currSym}{alert.measured_target.toLocaleString()}</span>
             </div>
-            {alert.target_2 && (
-              <div className="flex justify-between">
-                <span className="text-slate-600">Major Target 2:</span>
-                <span className="font-mono font-bold text-emerald-700">{currSym}{alert.target_2.toLocaleString()}</span>
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span className="text-slate-600">Target 2:</span>
+              <span className="font-mono font-bold text-emerald-700">{currSym}{target2Val.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between pt-1 border-t border-slate-100">
+              <span className="text-slate-600">Trade Status:</span>
+              <span className={`font-mono font-bold ${
+                normStatus === 'TARGET 2 HIT' || normStatus === 'TARGET 1 HIT'
+                  ? 'text-emerald-700'
+                  : normStatus === 'SL HIT'
+                  ? 'text-rose-600'
+                  : 'text-blue-600'
+              }`}>
+                {normStatus}
+              </span>
+            </div>
             {alert.nearest_resistance && isW && (
               <div className="flex justify-between">
                 <span className="text-slate-600">Nearest Resistance:</span>

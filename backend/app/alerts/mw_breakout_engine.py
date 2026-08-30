@@ -1,8 +1,13 @@
+import json
+import os
 import uuid
+from pathlib import Path
 from typing import List, Optional, Set, Dict, Any
 from datetime import datetime, timezone, timedelta
 from app.models.schemas import MWBreakoutAlert, MultiTimeframeSynthesis, WMPatternStructure
 from app.core.config import settings
+
+STORAGE_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "mw_breakout_alerts_store.json"
 
 class MWBreakoutAlertEngine:
     """
@@ -14,11 +19,56 @@ class MWBreakoutAlertEngine:
     3. EXACT BREAKOUT CANDLE TIMESTAMPS: Formatted in Asia/Kolkata (IST).
     4. REAL TARGET TRACKING & INVALIDATION: Tracks live market prices against measured targets.
     5. COMPLETE ISOLATION: Completely independent from standard notification stream.
+    6. FULL OUTCOME PERSISTENCE: Retains trade outcomes across page refreshes and restarts.
     """
 
     def __init__(self):
         self.alerts: List[MWBreakoutAlert] = []
         self.seen_event_keys: Set[str] = set()
+        self._load_from_storage()
+
+    def _load_from_storage(self):
+        try:
+            if STORAGE_FILE.exists():
+                with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        raw_alerts = data.get("alerts", [])
+                        self.seen_event_keys = set(data.get("seen_event_keys", []))
+                    elif isinstance(data, list):
+                        raw_alerts = data
+                    else:
+                        raw_alerts = []
+                    loaded = []
+                    for item in raw_alerts:
+                        try:
+                            # Normalize legacy status values to prompt specification
+                            if item.get("status") == "ACTIVE":
+                                item["status"] = "TARGET OPEN"
+                            elif item.get("status") == "INVALIDATED":
+                                item["status"] = "SL HIT"
+                            elif item.get("status") == "TARGET_1_HIT":
+                                item["status"] = "TARGET 1 HIT"
+                            elif item.get("status") == "TARGET_2_HIT":
+                                item["status"] = "TARGET 2 HIT"
+                            loaded.append(MWBreakoutAlert(**item))
+                        except Exception:
+                            continue
+                    self.alerts = loaded
+        except Exception as e:
+            print(f"[MWAlertEngine] Storage load warning: {e}")
+
+    def _save_to_storage(self):
+        try:
+            STORAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(STORAGE_FILE, "w", encoding="utf-8") as f:
+                payload = {
+                    "alerts": [a.model_dump() for a in self.alerts],
+                    "seen_event_keys": list(self.seen_event_keys)
+                }
+                json.dump(payload, f, indent=2)
+        except Exception as e:
+            print(f"[MWAlertEngine] Storage save warning: {e}")
 
     def process_synthesis(self, synthesis: MultiTimeframeSynthesis) -> List[MWBreakoutAlert]:
         """
@@ -73,10 +123,12 @@ class MWBreakoutAlertEngine:
                 ema_price = matching_event.ema20_level if matching_event and matching_event.ema20_level else pat.neckline_price
 
                 t_analysis = pat.target_analysis
-                measured_target = t_analysis.measured_target if t_analysis else (
+                measured_target = t_analysis.measured_target if (t_analysis and t_analysis.measured_target) else (
                     pat.neckline_price + pat.pattern_height if is_w else pat.neckline_price - pat.pattern_height
                 )
-                target_2 = t_analysis.target_2 if t_analysis else None
+                target_2 = t_analysis.target_2 if (t_analysis and t_analysis.target_2) else (
+                    pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height
+                )
                 nearest_sup = t_analysis.nearest_obstacle if not is_w and t_analysis else None
                 nearest_res = t_analysis.nearest_obstacle if is_w and t_analysis else None
                 inval_level = t_analysis.invalidation_level if t_analysis else pat.neckline_price
@@ -107,13 +159,13 @@ class MWBreakoutAlertEngine:
                     volume=0.0,
                     relative_volume=round(b_vol, 2),
                     measured_target=round(measured_target, 2),
-                    target_2=round(target_2, 2) if target_2 else None,
+                    target_2=round(target_2, 2) if target_2 else round(pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height, 2),
                     nearest_support=round(nearest_sup, 2) if nearest_sup else None,
                     nearest_resistance=round(nearest_res, 2) if nearest_res else None,
                     invalidation_level=round(inval_level, 2),
                     quality_score=pat.quality_score,
                     quality_breakdown=t_analysis.quality_breakdown if t_analysis else {},
-                    status="ACTIVE",
+                    status="TARGET OPEN",
                     event_created_at=now_str,
                     read=False
                 )
@@ -125,29 +177,68 @@ class MWBreakoutAlertEngine:
         if len(self.alerts) > 200:
             self.alerts = self.alerts[:200]
 
+        if new_alerts:
+            self._save_to_storage()
+
         return new_alerts
 
     def _update_existing_alert_statuses(self, synthesis: MultiTimeframeSynthesis):
         """
-        Evaluates active alerts against live market price to track Target 1 Hit and Invalidation.
+        Evaluates active/open alerts against live market price to track trade outcomes:
+        - TARGET OPEN: Initial state after confirmation
+        - TARGET 1 HIT: Price reaches/crosses Measured Target 1
+        - TARGET 2 HIT: Price subsequently (or directly) reaches/crosses Measured Target 2
+        - SL HIT: Invalidation / SL reached before either target was reached
         """
         current_price = synthesis.current_price
+        updated = False
+
         for alert in self.alerts:
-            if alert.symbol != synthesis.symbol or alert.status != "ACTIVE":
+            if alert.symbol != synthesis.symbol:
                 continue
 
-            # Check W Target / Invalidation
+            # Terminal outcomes: TARGET 2 HIT and SL HIT are final and must never be overwritten
+            if alert.status in ["TARGET 2 HIT", "SL HIT"]:
+                continue
+
+            t2_val = alert.target_2 if alert.target_2 is not None else (
+                round(alert.neckline_price + 2.0 * alert.pattern_height, 2) if alert.pattern_type == "W" else round(alert.neckline_price - 2.0 * alert.pattern_height, 2)
+            )
+
+            # Bullish / W Breakout (Target 1 & 2 above breakout, SL below invalidation)
             if alert.pattern_type == "W":
-                if current_price >= alert.measured_target:
-                    alert.status = "TARGET_1_HIT"
-                elif current_price < (alert.invalidation_level - 0.05):
-                    alert.status = "INVALIDATED"
-            # Check M Target / Invalidation
+                # Check Priority 1: Target 2 reached (direct or subsequent)
+                if current_price >= t2_val:
+                    alert.status = "TARGET 2 HIT"
+                    updated = True
+                # Check Priority 2: Target 1 reached (price >= measured_target, not yet at Target 2)
+                elif current_price >= alert.measured_target:
+                    if alert.status not in ["TARGET 1 HIT", "TARGET_1_HIT"]:
+                        alert.status = "TARGET 1 HIT"
+                        updated = True
+                # Check Priority 3: SL reached before either target
+                elif alert.status in ["TARGET OPEN", "ACTIVE"] and current_price <= alert.invalidation_level:
+                    alert.status = "SL HIT"
+                    updated = True
+
+            # Bearish / M Breakdown (Target 1 & 2 below breakdown, SL above invalidation)
             elif alert.pattern_type == "M":
-                if current_price <= alert.measured_target:
-                    alert.status = "TARGET_1_HIT"
-                elif current_price > (alert.invalidation_level + 0.05):
-                    alert.status = "INVALIDATED"
+                # Check Priority 1: Target 2 reached (direct or subsequent)
+                if current_price <= t2_val:
+                    alert.status = "TARGET 2 HIT"
+                    updated = True
+                # Check Priority 2: Target 1 reached (price <= measured_target, not yet at Target 2)
+                elif current_price <= alert.measured_target:
+                    if alert.status not in ["TARGET 1 HIT", "TARGET_1_HIT"]:
+                        alert.status = "TARGET 1 HIT"
+                        updated = True
+                # Check Priority 3: SL reached before either target
+                elif alert.status in ["TARGET OPEN", "ACTIVE"] and current_price >= alert.invalidation_level:
+                    alert.status = "SL HIT"
+                    updated = True
+
+        if updated:
+            self._save_to_storage()
 
     def get_alerts(
         self,
@@ -174,10 +265,19 @@ class MWBreakoutAlertEngine:
             results = [a for a in results if a.pattern_type.upper() == pattern_type.upper()]
 
         if status and status.upper() != "ALL":
-            if status.upper() == "COMPLETED":
-                results = [a for a in results if a.status in ["TARGET_1_HIT", "TARGET_2_HIT"]]
+            st_clean = status.strip().upper()
+            if st_clean == "COMPLETED":
+                results = [a for a in results if a.status in ["TARGET 1 HIT", "TARGET 2 HIT", "TARGET_1_HIT", "TARGET_2_HIT"]]
+            elif st_clean in ["ACTIVE", "TARGET OPEN", "OPEN"]:
+                results = [a for a in results if a.status in ["TARGET OPEN", "ACTIVE"]]
+            elif st_clean in ["INVALIDATED", "SL HIT", "SL_HIT"]:
+                results = [a for a in results if a.status in ["SL HIT", "INVALIDATED"]]
+            elif st_clean in ["TARGET 1 HIT", "TARGET_1_HIT"]:
+                results = [a for a in results if a.status in ["TARGET 1 HIT", "TARGET_1_HIT"]]
+            elif st_clean in ["TARGET 2 HIT", "TARGET_2_HIT"]:
+                results = [a for a in results if a.status in ["TARGET 2 HIT", "TARGET_2_HIT"]]
             else:
-                results = [a for a in results if a.status.upper() == status.upper()]
+                results = [a for a in results if a.status.upper() == st_clean]
 
         if date_filter and date_filter.lower() != "all":
             now = datetime.now(timezone.utc)
@@ -200,17 +300,19 @@ class MWBreakoutAlertEngine:
     def mark_all_read(self):
         for a in self.alerts:
             a.read = True
+        self._save_to_storage()
 
     def clear_alerts(self):
         self.alerts.clear()
         self.seen_event_keys.clear()
+        self._save_to_storage()
 
     def get_summary_stats(self) -> Dict[str, int]:
         w_count = sum(1 for a in self.alerts if a.pattern_type == "W")
         m_count = sum(1 for a in self.alerts if a.pattern_type == "M")
-        active_count = sum(1 for a in self.alerts if a.status == "ACTIVE")
-        target_hit_count = sum(1 for a in self.alerts if a.status in ["TARGET_1_HIT", "TARGET_2_HIT"])
-        invalidated_count = sum(1 for a in self.alerts if a.status == "INVALIDATED")
+        active_count = sum(1 for a in self.alerts if a.status in ["TARGET OPEN", "ACTIVE"])
+        target_hit_count = sum(1 for a in self.alerts if a.status in ["TARGET 1 HIT", "TARGET 2 HIT", "TARGET_1_HIT", "TARGET_2_HIT"])
+        invalidated_count = sum(1 for a in self.alerts if a.status in ["SL HIT", "INVALIDATED"])
         unread_count = sum(1 for a in self.alerts if not a.read)
 
         return {

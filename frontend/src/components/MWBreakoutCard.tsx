@@ -25,34 +25,58 @@ export const MWBreakoutCard: React.FC<MWBreakoutCardProps> = ({ alert, isHero = 
   const isW = alert.pattern_type === 'W';
   const currSym = alert.symbol.includes('BTC') || alert.symbol.includes('ETH') ? '$' : '₹';
 
-  const getStatusBadge = () => {
+  const getNormalizedStatus = (): 'TARGET OPEN' | 'TARGET 1 HIT' | 'TARGET 2 HIT' | 'SL HIT' => {
     switch (alert.status) {
+      case 'TARGET 2 HIT':
+      case 'TARGET_2_HIT':
+        return 'TARGET 2 HIT';
+      case 'TARGET 1 HIT':
       case 'TARGET_1_HIT':
+        return 'TARGET 1 HIT';
+      case 'SL HIT':
+      case 'INVALIDATED':
+        return 'SL HIT';
+      case 'TARGET OPEN':
+      case 'ACTIVE':
+      default:
+        return 'TARGET OPEN';
+    }
+  };
+
+  const normStatus = getNormalizedStatus();
+  const target2Val = alert.target_2 != null ? alert.target_2 : (
+    isW ? alert.neckline_price + 2.0 * alert.pattern_height : alert.neckline_price - 2.0 * alert.pattern_height
+  );
+
+  const getStatusBadge = () => {
+    switch (normStatus) {
+      case 'TARGET 1 HIT':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
             <CheckCircle2 className="h-3.5 w-3.5" />
             <span>TARGET 1 HIT</span>
           </span>
         );
-      case 'TARGET_2_HIT':
+      case 'TARGET 2 HIT':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-600/15 text-emerald-700 border border-emerald-500/40">
             <CheckCircle2 className="h-3.5 w-3.5" />
             <span>TARGET 2 HIT</span>
           </span>
         );
-      case 'INVALIDATED':
+      case 'SL HIT':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/30">
             <XCircle className="h-3.5 w-3.5" />
-            <span>INVALIDATED</span>
+            <span>SL HIT</span>
           </span>
         );
+      case 'TARGET OPEN':
       default:
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-500/10 text-blue-600 border border-blue-500/30">
             <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-            <span>ACTIVE</span>
+            <span>TARGET OPEN</span>
           </span>
         );
     }
@@ -173,23 +197,54 @@ export const MWBreakoutCard: React.FC<MWBreakoutCardProps> = ({ alert, isHero = 
 
         {/* Target & Invalidation Summary */}
         <div className="mt-2.5 p-3 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-              <Target className="h-4 w-4 text-emerald-600" />
-              <span>Measured Target 1:</span>
+          {/* Target 1 */}
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-700">
+              <Target className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Target 1:</span>
             </div>
-            <span className="text-sm font-mono font-extrabold text-emerald-600">
+            <span className="font-mono font-extrabold text-emerald-600">
               {currSym}{alert.measured_target.toLocaleString()}
             </span>
           </div>
 
+          {/* Target 2 */}
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+            <div className="flex items-center gap-1.5 font-bold text-slate-700">
+              <Target className="h-3.5 w-3.5 text-emerald-700" />
+              <span>Target 2:</span>
+            </div>
+            <span className="font-mono font-extrabold text-emerald-700">
+              {currSym}{target2Val.toLocaleString()}
+            </span>
+          </div>
+
+          {/* Invalidation Close / SL */}
           <div className="flex items-center justify-between text-xs text-slate-600 pt-1 border-t border-slate-100">
             <div className="flex items-center gap-1">
               <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
-              <span>Invalidation Close:</span>
+              <span>Invalidation Close / SL:</span>
             </div>
             <span className="font-mono font-bold text-rose-600">
               {currSym}{alert.invalidation_level.toLocaleString()}
+            </span>
+          </div>
+
+          {/* Trade Outcome Status */}
+          <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100">
+            <span className="text-[11px] font-bold uppercase text-slate-500">Status:</span>
+            <span
+              className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-black tracking-wide ${
+                normStatus === 'TARGET 2 HIT'
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  : normStatus === 'TARGET 1 HIT'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : normStatus === 'SL HIT'
+                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                  : 'bg-blue-50 text-blue-700 border border-blue-200'
+              }`}
+            >
+              {normStatus}
             </span>
           </div>
         </div>

@@ -312,13 +312,13 @@ async def trigger_test_mw_breakout(
             ema20_price=24800.0,
             volume=250000.0,
             relative_volume=1.45,
-            measured_target=25200.0,
-            target_2=25350.0,
+            measured_target=w_targets.measured_target,
+            target_2=w_targets.target_2 or 25550.0,
             nearest_resistance=25050.0,
             invalidation_level=24850.0,
             quality_score=87,
             quality_breakdown={"structure": 20, "swing_quality": 15, "depth": 15, "symmetry": 10, "separation": 10, "neckline_quality": 10, "trendline_confluence": 10, "ema_confluence": 5, "breakout_candle": 5},
-            status="ACTIVE",
+            status="TARGET OPEN",
             event_created_at=now_str,
             read=False
         )
@@ -358,18 +358,19 @@ async def trigger_test_mw_breakout(
             ema20_price=57460.62,
             volume=180000.0,
             relative_volume=1.38,
-            measured_target=57370.0,
-            target_2=57150.0,
+            measured_target=m_targets.measured_target,
+            target_2=m_targets.target_2 or 57305.0,
             nearest_support=57380.0,
             invalidation_level=57435.0,
             quality_score=86,
             quality_breakdown={"structure": 20, "swing_quality": 15, "depth": 15, "symmetry": 10, "separation": 10, "neckline_quality": 8, "trendline_confluence": 8, "ema_confluence": 5, "breakout_candle": 5},
-            status="ACTIVE",
+            status="TARGET OPEN",
             event_created_at=now_str,
             read=False
         )
 
     mw_breakout_engine.alerts.insert(0, test_alert)
+    mw_breakout_engine._save_to_storage()
     await ws_manager.broadcast({
         "type": "MW_BREAKOUT_TRIGGERED",
         "alert": test_alert.model_dump()
