@@ -276,11 +276,11 @@ def test_pbreakout_test8_valid_w_pattern_breakout():
         Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00+05:30", open=100, high=102, low=98, close=100, volume=1000)
         for i in range(15)
     ]
-    # W Pattern: L1 at index 2 (90.0), Neckline Peak at index 5 (100.0), L2 at index 8 (90.2)
+    # W Pattern: L1 at index 2 (90.0), Neckline Peak at index 5 (100.0), L2 at index 8 (91.0)
     swings = [
         SwingPoint(index=2, price=90.0, timestamp="2026-08-25T10:10:00+05:30", is_high=False, type="LL", strength=2.0, confirmation_index=4, confirmed=True),
         SwingPoint(index=5, price=100.0, timestamp="2026-08-25T10:25:00+05:30", is_high=True, type="LH", strength=2.0, confirmation_index=7, confirmed=True),
-        SwingPoint(index=8, price=90.2, timestamp="2026-08-25T10:40:00+05:30", is_high=False, type="HL", strength=2.0, confirmation_index=10, confirmed=True)
+        SwingPoint(index=8, price=91.0, timestamp="2026-08-25T10:40:00+05:30", is_high=False, type="HL", strength=2.0, confirmation_index=10, confirmed=True)
     ]
     tl = Trendline(
         line_type="DESCENDING_RESISTANCE",
@@ -290,8 +290,8 @@ def test_pbreakout_test8_valid_w_pattern_breakout():
         rank="PRIMARY", strength="MAJOR"
     )
     # Candle 12 at index 12: Neckline is 100.0, TL is ~88.2, EMA is 96.0
-    # Candle 12 closes at 104.0 > 100.0 (Neck) & > 88.2 (TL) & > 96.0 (EMA)
-    candles[12] = Candle(timestamp="2026-08-25T11:00:00+05:30", open=97.0, high=105.0, low=97.0, close=104.0, volume=2000)
+    # Candle 12 closes at 100.5 > 100.0 (Neck) & > 88.2 (TL) & > 96.0 (EMA), RR = 9.5 / 9.8 = 0.97 >= 0.85
+    candles[12] = Candle(timestamp="2026-08-25T11:00:00+05:30", open=99.0, high=101.0, low=98.5, close=100.5, volume=2000)
 
     df_ind = pd.DataFrame({
         "ema_20": [96.0] * len(candles),
@@ -433,11 +433,11 @@ def test_pbreakout_test12_valid_m_pattern_breakout():
         Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00+05:30", open=100, high=102, low=98, close=100, volume=1000)
         for i in range(15)
     ]
-    # M Pattern: H1 at index 2 (110.0), Neckline Trough at index 5 (100.0), H2 at index 8 (109.8)
+    # M Pattern: H1 at index 2 (110.0), Neckline Trough at index 5 (100.0), H2 at index 8 (109.0)
     swings = [
         SwingPoint(index=2, price=110.0, timestamp="2026-08-25T10:10:00+05:30", is_high=True, type="HH", strength=2.0, confirmation_index=4, confirmed=True),
         SwingPoint(index=5, price=100.0, timestamp="2026-08-25T10:25:00+05:30", is_high=False, type="HL", strength=2.0, confirmation_index=7, confirmed=True),
-        SwingPoint(index=8, price=109.8, timestamp="2026-08-25T10:40:00+05:30", is_high=True, type="LH", strength=2.0, confirmation_index=10, confirmed=True)
+        SwingPoint(index=8, price=109.0, timestamp="2026-08-25T10:40:00+05:30", is_high=True, type="LH", strength=2.0, confirmation_index=10, confirmed=True)
     ]
     tl = Trendline(
         line_type="ASCENDING_SUPPORT",
@@ -447,8 +447,8 @@ def test_pbreakout_test12_valid_m_pattern_breakout():
         rank="PRIMARY", strength="MAJOR"
     )
     # Candle 12 at index 12: Neckline is 100.0, TL is ~109.4, EMA is 104.0
-    # Candle 12 closes at 96.0 < 100.0 (Neck) & < 109.4 (TL) & < 104.0 (EMA)
-    candles[12] = Candle(timestamp="2026-08-25T11:00:00+05:30", open=103.0, high=103.5, low=95.0, close=96.0, volume=2000)
+    # Candle 12 closes at 99.5 < 100.0 (Neck) & < 109.4 (TL) & < 104.0 (EMA), RR = 9.5 / 9.8 = 0.97 >= 0.85
+    candles[12] = Candle(timestamp="2026-08-25T11:00:00+05:30", open=101.0, high=101.5, low=99.0, close=99.5, volume=2000)
 
     df_ind = pd.DataFrame({
         "ema_20": [104.0] * len(candles),
@@ -983,7 +983,7 @@ def test_wm_sec55_test9_same_candle_closes_above_all_three_w_breakout():
     swings = [
         SwingPoint(index=2, price=90.0, timestamp="2026-08-25T10:10:00+05:30", is_high=False, type="LL", strength=2.0, confirmed=True),
         SwingPoint(index=5, price=100.0, timestamp="2026-08-25T10:25:00+05:30", is_high=True, type="LH", strength=2.0, confirmed=True),
-        SwingPoint(index=8, price=90.2, timestamp="2026-08-25T10:40:00+05:30", is_high=False, type="HL", strength=2.0, confirmed=True)
+        SwingPoint(index=8, price=91.0, timestamp="2026-08-25T10:40:00+05:30", is_high=False, type="HL", strength=2.0, confirmed=True)
     ]
     tl = Trendline(
         line_type="DESCENDING_RESISTANCE",
@@ -991,7 +991,7 @@ def test_wm_sec55_test9_same_candle_closes_above_all_three_w_breakout():
         p2_index=5, p2_price=98.0, p2_time="2026-08-25T10:25:00+05:30",
         slope=-1.4, intercept=105.0, end_index=14, end_price=85.0
     )
-    candles[12] = Candle(timestamp="2026-08-25T11:00:00+05:30", open=97.0, high=105.0, low=97.0, close=104.0, volume=2000)
+    candles[12] = Candle(timestamp="2026-08-25T11:00:00+05:30", open=99.0, high=101.0, low=98.5, close=100.5, volume=2000)
     df_ind = pd.DataFrame({"ema_20": [96.0] * len(candles), "atr_14": [2.0] * len(candles)})
     breaks = PrecisionBreakoutDetector.detect_wm_pattern_trendline_ema_breakouts(
         candles=candles, swings=swings, trendlines=[tl], df_indicators=df_ind,
@@ -1056,7 +1056,7 @@ def test_wm_sec55_test12_valid_m_all_conditions_m_breakdown():
     swings = [
         SwingPoint(index=2, price=110.0, timestamp="2026-08-25T10:10:00+05:30", is_high=True, type="HH", strength=2.0, confirmed=True),
         SwingPoint(index=5, price=100.0, timestamp="2026-08-25T10:25:00+05:30", is_high=False, type="HL", strength=2.0, confirmed=True),
-        SwingPoint(index=8, price=109.8, timestamp="2026-08-25T10:40:00+05:30", is_high=True, type="LH", strength=2.0, confirmed=True)
+        SwingPoint(index=8, price=109.0, timestamp="2026-08-25T10:40:00+05:30", is_high=True, type="LH", strength=2.0, confirmed=True)
     ]
     tl = Trendline(
         line_type="ASCENDING_SUPPORT",
@@ -1064,7 +1064,7 @@ def test_wm_sec55_test12_valid_m_all_conditions_m_breakdown():
         p2_index=5, p2_price=101.0, p2_time="2026-08-25T10:25:00+05:30",
         slope=1.2, intercept=95.0, end_index=14, end_price=111.0
     )
-    candles[12] = Candle(timestamp="2026-08-25T11:00:00+05:30", open=103.0, high=103.5, low=95.0, close=96.0, volume=2000)
+    candles[12] = Candle(timestamp="2026-08-25T11:00:00+05:30", open=101.0, high=101.5, low=99.0, close=99.5, volume=2000)
     df_ind = pd.DataFrame({"ema_20": [104.0] * len(candles), "atr_14": [2.0] * len(candles)})
     breaks = PrecisionBreakoutDetector.detect_wm_pattern_trendline_ema_breakouts(
         candles=candles, swings=swings, trendlines=[tl], df_indicators=df_ind,
@@ -1193,7 +1193,7 @@ def test_wm_sec55_test19_historical_backtest_no_future_leakage():
     swings = [
         SwingPoint(index=2, price=90.0, timestamp="2026-08-25T10:10:00+05:30", is_high=False, type="LL", strength=2.0, confirmed=True),
         SwingPoint(index=5, price=100.0, timestamp="2026-08-25T10:25:00+05:30", is_high=True, type="LH", strength=2.0, confirmed=True),
-        SwingPoint(index=8, price=90.2, timestamp="2026-08-25T10:40:00+05:30", is_high=False, type="HL", strength=2.0, confirmed=True)
+        SwingPoint(index=8, price=91.0, timestamp="2026-08-25T10:40:00+05:30", is_high=False, type="HL", strength=2.0, confirmed=True)
     ]
     tl = Trendline(
         line_type="DESCENDING_RESISTANCE",
@@ -1202,7 +1202,7 @@ def test_wm_sec55_test19_historical_backtest_no_future_leakage():
         slope=-1.4, intercept=105.0, end_index=14, end_price=85.0
     )
     breakout_timestamp = "2026-08-25T11:00:00+05:30"
-    candles[12] = Candle(timestamp=breakout_timestamp, open=97.0, high=105.0, low=97.0, close=104.0, volume=2000)
+    candles[12] = Candle(timestamp=breakout_timestamp, open=99.0, high=101.0, low=98.5, close=100.5, volume=2000)
     df_ind = pd.DataFrame({"ema_20": [96.0] * len(candles), "atr_14": [2.0] * len(candles)})
 
     breaks = PrecisionBreakoutDetector.detect_wm_pattern_trendline_ema_breakouts(
@@ -1238,7 +1238,7 @@ def test_one_pattern_one_breakout_no_repeating_across_continuous_downtrend():
     swings = [
         SwingPoint(index=2, price=110.0, timestamp="2026-08-25T10:10:00+05:30", is_high=True, type="HH", strength=2.0, confirmed=True),
         SwingPoint(index=5, price=100.0, timestamp="2026-08-25T10:25:00+05:30", is_high=False, type="HL", strength=2.0, confirmed=True),
-        SwingPoint(index=8, price=109.8, timestamp="2026-08-25T10:40:00+05:30", is_high=True, type="LH", strength=2.0, confirmed=True)
+        SwingPoint(index=8, price=109.0, timestamp="2026-08-25T10:40:00+05:30", is_high=True, type="LH", strength=2.0, confirmed=True)
     ]
     tl = Trendline(
         line_type="ASCENDING_SUPPORT",
@@ -1246,8 +1246,13 @@ def test_one_pattern_one_breakout_no_repeating_across_continuous_downtrend():
         p2_index=5, p2_price=101.0, p2_time="2026-08-25T10:25:00+05:30",
         slope=1.2, intercept=95.0, end_index=24, end_price=123.0
     )
-    # Candles 10 to 20 all close strongly below neckline (100.0), TL, and EMA
-    for k in range(10, 20):
+    # First breakdown candle at index 10 closes just below neckline (99.5)
+    candles[10] = Candle(
+        timestamp="2026-08-25T10:50:00+05:30",
+        open=101.0, high=101.5, low=99.0, close=99.5, volume=2000
+    )
+    # Candles 11 to 20 continue downwards
+    for k in range(11, 20):
         candles[k] = Candle(
             timestamp=f"2026-08-25T10:{k*5:02d}:00+05:30",
             open=98.0 - (k - 10),
@@ -1267,7 +1272,6 @@ def test_one_pattern_one_breakout_no_repeating_across_continuous_downtrend():
         symbol="NIFTY 50", timeframe="5M", atr_val=2.0
     )
 
-    # Must be EXACTLY ONE breakout event for the pattern, NOT 10!
     assert len(breaks) == 1
     assert breaks[0].event_type == "M_PATTERN_TRENDLINE_EMA_DOWN_BREAKOUT"
     assert breaks[0].break_candle_index == 10
@@ -1379,7 +1383,7 @@ def test_wm_breakout_engine_section37_w_structural_breakout():
 
     events, confirmed, active_pat, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
         candles=candles, swings=swings, trendlines=[], df_indicators=None,
-        symbol="NIFTY 50", timeframe="5M", atr_val=2.0
+        symbol="NIFTY 50", timeframe="5M", atr_val=2.0, enforce_precision=False
     )
 
     assert len(confirmed) == 1
@@ -1422,7 +1426,7 @@ def test_wm_breakout_engine_section38_m_structural_breakdown():
 
     events, confirmed, active_pat, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
         candles=candles, swings=swings, trendlines=[], df_indicators=None,
-        symbol="NIFTY 50", timeframe="5M", atr_val=2.0
+        symbol="NIFTY 50", timeframe="5M", atr_val=2.0, enforce_precision=False
     )
 
     assert len(confirmed) == 1
@@ -1464,7 +1468,7 @@ def test_wm_breakout_engine_section39_intrabar_forming_no_confirmed_breakout():
 
     events, confirmed, active_pat, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
         candles=candles, swings=swings, trendlines=[], df_indicators=None,
-        symbol="NIFTY 50", timeframe="5M", atr_val=2.0
+        symbol="NIFTY 50", timeframe="5M", atr_val=2.0, enforce_precision=False
     )
 
     assert active_pat is not None
@@ -1508,7 +1512,7 @@ def test_wm_breakout_engine_section40_structural_only_not_hidden():
 
     events, confirmed, active_pat, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
         candles=candles, swings=swings, trendlines=[], df_indicators=df_ind,
-        symbol="NIFTY 50", timeframe="5M", atr_val=2.0
+        symbol="NIFTY 50", timeframe="5M", atr_val=2.0, enforce_precision=False
     )
 
     # Structural breakout is created!

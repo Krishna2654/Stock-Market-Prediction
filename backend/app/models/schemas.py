@@ -55,6 +55,7 @@ class PatternTargetAnalysis(BaseModel):
     reversal_points: int = 40
     trendline_points: int = 0
     ema_points: int = 0
+    risk_reward_ratio: Optional[float] = None
     interpretation: str = ""
 
 class WMPatternStructure(BaseModel):
@@ -64,7 +65,7 @@ class WMPatternStructure(BaseModel):
         "FORMING", "ACTIVE", "CONFIRMED", "BREAKOUT_FORMING", "BREAKDOWN_FORMING",
         "STRUCTURAL_BREAKOUT_CONFIRMED", "STRUCTURAL_BREAKDOWN_CONFIRMED",
         "BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED", "TARGET_1_HIT",
-        "TARGET_2_HIT", "INVALIDATED", "REJECTED", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT"
+        "TARGET_2_HIT", "INVALIDATED", "REJECTED", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT", "FALSE_BREAKOUT"
     ]
     s1_index: int
     s1_price: float
@@ -99,6 +100,7 @@ class WMPatternStructure(BaseModel):
     target_1: Optional[float] = None
     target_2: Optional[float] = None
     stop_loss: Optional[float] = None
+    risk_reward_ratio: Optional[float] = None
     outcome_timestamp: Optional[str] = None
 
 class StructureBreakEvent(BaseModel):

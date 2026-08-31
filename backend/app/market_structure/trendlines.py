@@ -496,9 +496,12 @@ class TrendlineDetector:
 
         atr = cls._calculate_atr(candles)
         n = len(candles)
+        # Cap swings to the most recent 80 swings to prevent O(S^2 * N) combinatorial explosion
+        # on large datasets (e.g. 5M intraday candles with 500+ swings = 150,000 pairs x 8,000 candles)
+        eval_swings = swings[-80:] if len(swings) > 80 else swings
 
-        up_candidates = cls._build_uptrend_candidates(candles, swings, atr)
-        down_candidates = cls._build_downtrend_candidates(candles, swings, atr)
+        up_candidates = cls._build_uptrend_candidates(candles, eval_swings, atr)
+        down_candidates = cls._build_downtrend_candidates(candles, eval_swings, atr)
 
         ranked_support = cls._cluster_and_rank_lines(up_candidates, atr, n, max_lines_per_direction)
         ranked_resistance = cls._cluster_and_rank_lines(down_candidates, atr, n, max_lines_per_direction)
