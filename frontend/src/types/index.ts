@@ -276,8 +276,6 @@ export interface WMPatternStructure {
     | "TARGET_1_HIT"
     | "TARGET_2_HIT"
     | "SL_HIT"
-    | "FALSE_BREAKOUT"
-    | "FALSE BREAKOUT"
     | "INVALIDATED"
     | "REJECTED";
   s1_index: number;
@@ -398,7 +396,7 @@ export interface MWBreakoutAlert {
   quality_breakdown?: Record<string, number>;
 
   // Lifecycle & status tracking
-  status: "TARGET OPEN" | "TARGET 1 HIT" | "TARGET 2 HIT" | "SL HIT" | "FALSE BREAKOUT" | "FALSE_BREAKOUT" | "ACTIVE" | "TARGET_1_HIT" | "TARGET_2_HIT" | "INVALIDATED" | "EXPIRED";
+  status: "TARGET OPEN" | "TARGET 1 HIT" | "TARGET 2 HIT" | "SL HIT" | "ACTIVE" | "TARGET_1_HIT" | "TARGET_2_HIT" | "INVALIDATED" | "EXPIRED";
   event_created_at: string;
   read: boolean;
 }

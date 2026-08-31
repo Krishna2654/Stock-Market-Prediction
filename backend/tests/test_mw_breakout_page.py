@@ -782,16 +782,21 @@ def test_21_wick_only_penetration_does_not_trigger_breakout():
     assert len(confirmed) == 0 or confirmed[0].status != "BREAKOUT_CONFIRMED", "Wick-only penetration must not trigger breakout"
     assert len(events) == 0, "No breakout events should be emitted on wick-only crosses"
 
-def test_22_false_breakout_lifecycle():
-    """TEST 22: If price closes above neckline then subsequent candle closes back below neckline, status becomes FALSE BREAKOUT."""
-    alert = MWBreakoutAlert(
-        alert_id="mw_test_false_breakout",
+def test_22_no_false_breakout_confirmed_stays_active():
+    """
+    TEST 22: Confirmed W and M breakouts remain active and do NOT transition to FALSE BREAKOUT.
+    W: Confirmed close above neckline remains confirmed/active even if later candle closes back below neckline.
+    M: Confirmed close below neckline remains confirmed/active even if later candle closes back above neckline.
+    """
+    # 1. Test W Pattern: confirmed breakout remains TARGET OPEN when candle closes back below neckline
+    w_alert = MWBreakoutAlert(
+        alert_id="mw_test_no_false_breakout_w",
         alert_type="W_BREAKOUT_CONFIRMED",
         pattern_type="W",
         direction="UP",
         symbol="NIFTY 50",
         timeframe="15M",
-        pattern_id="test_pat",
+        pattern_id="test_pat_w",
         s1_price=24000.0,
         s1_timestamp="2026-08-25T10:00:00Z",
         s2_price=24020.0,
@@ -807,21 +812,63 @@ def test_22_false_breakout_lifecycle():
         trendline_price=24200.0,
         ema20_price=24180.0,
         measured_target=24400.0,
-        target_2=24523.6,
+        target_2=24600.0,
         invalidation_level=24000.0,
         quality_score=85,
         status="TARGET OPEN",
         event_created_at="2026-08-25T11:15:00Z"
     )
 
-    # Subsequent candle closes at 24150 (below neckline 24200) without hitting Target 1 (24400)
-    subsequent_candles = [
+    # Subsequent candle closes at 24150 (back below neckline 24200) without hitting SL (24000) or T1 (24400)
+    w_subsequent_candles = [
         Candle(timestamp="2026-08-25T11:15:00Z", open=24190, high=24220, low=24180, close=24210, volume=1000),
         Candle(timestamp="2026-08-25T11:30:00Z", open=24210, high=24215, low=24140, close=24150, volume=1500)
     ]
 
-    mw_breakout_engine._evaluate_single_alert_status(alert, subsequent_candles)
-    assert alert.status == "FALSE BREAKOUT", "Closing back below neckline before Target 1 must result in FALSE BREAKOUT"
+    mw_breakout_engine._evaluate_single_alert_status(w_alert, w_subsequent_candles)
+    assert w_alert.status == "TARGET OPEN", f"W breakout closing back below neckline must remain TARGET OPEN, got: {w_alert.status}"
+    assert w_alert.status != "FALSE BREAKOUT", "W breakout must never transition to FALSE BREAKOUT"
+
+    # 2. Test M Pattern: confirmed breakdown remains TARGET OPEN when candle closes back above neckline
+    m_alert = MWBreakoutAlert(
+        alert_id="mw_test_no_false_breakout_m",
+        alert_type="M_BREAKDOWN_CONFIRMED",
+        pattern_type="M",
+        direction="DOWN",
+        symbol="BTC/USD",
+        timeframe="15M",
+        pattern_id="test_pat_m",
+        s1_price=65000.0,
+        s1_timestamp="2026-08-25T10:00:00Z",
+        s2_price=64980.0,
+        s2_timestamp="2026-08-25T11:00:00Z",
+        neckline_price=64500.0,
+        neckline_timestamp="2026-08-25T10:30:00Z",
+        pattern_height=500.0,
+        breakout_candle_timestamp="2026-08-25T11:15:00Z",
+        breakout_open=64520.0,
+        breakout_high=64530.0,
+        breakout_low=64460.0,
+        breakout_close=64470.0,
+        trendline_price=64500.0,
+        ema20_price=64510.0,
+        measured_target=64000.0,
+        target_2=63500.0,
+        invalidation_level=65000.0,
+        quality_score=85,
+        status="TARGET OPEN",
+        event_created_at="2026-08-25T11:15:00Z"
+    )
+
+    # Subsequent candle closes at 64550 (back above neckline 64500) without hitting SL (65000) or T1 (64000)
+    m_subsequent_candles = [
+        Candle(timestamp="2026-08-25T11:15:00Z", open=64520, high=64530, low=64460, close=64470, volume=1000),
+        Candle(timestamp="2026-08-25T11:30:00Z", open=64470, high=64560, low=64460, close=64550, volume=1500)
+    ]
+
+    mw_breakout_engine._evaluate_single_alert_status(m_alert, m_subsequent_candles)
+    assert m_alert.status == "TARGET OPEN", f"M breakdown closing back above neckline must remain TARGET OPEN, got: {m_alert.status}"
+    assert m_alert.status != "FALSE BREAKOUT", "M breakdown must never transition to FALSE BREAKOUT"
 
 def test_23_multi_symbol_and_deduplication():
     """TEST 23: Confirmed alerts across multiple symbols (BTC/USD, RELIANCE, NIFTY) and prevent duplicates."""
@@ -854,6 +901,56 @@ def test_23_multi_symbol_and_deduplication():
     # Sync again with same pattern -> should NOT duplicate!
     mw_breakout_engine.sync_chart_patterns("RELIANCE", "15M", [pat1], pat1, candles)
     assert len(mw_breakout_engine.alerts) == 1, "Duplicate pattern sync must update in-place without adding duplicate cards"
+
+def test_24_detector_no_false_breakout_for_wm_patterns():
+    """
+    TEST 24: Verify PrecisionBreakoutDetector.detect_wm_patterns does NOT classify
+    patterns as FALSE_BREAKOUT when a subsequent candle closes back across the neckline.
+    """
+    from app.market_structure.precision_breakouts import PrecisionBreakoutDetector
+    from app.market_structure.swings import SwingDetector
+
+    # 1. Test W Pattern with subsequent candle closing back below neckline
+    # L1 at 0 (100), Mid peak at 5 (120), L2 at 10 (101), Breakout at 12 (123 > 120), subsequent candle at 13 (close 118 < 120)
+    w_candles = []
+    # 0: L1
+    w_candles.append(Candle(timestamp="2026-08-30T09:15:00Z", open=105, high=106, low=100, close=102, volume=1000))
+    # 1-4: rise to mid peak
+    for i in range(1, 5):
+        w_candles.append(Candle(timestamp=f"2026-08-30T09:{15+i*5:02d}:00Z", open=102+i*3, high=105+i*3, low=101+i*3, close=104+i*3, volume=1000))
+    # 5: mid peak (neckline = 120)
+    w_candles.append(Candle(timestamp="2026-08-30T09:40:00Z", open=116, high=120, low=115, close=119, volume=1200))
+    # 6-9: fall to L2
+    for i in range(6, 10):
+        w_candles.append(Candle(timestamp=f"2026-08-30T09:{15+i*5:02d}:00Z", open=118-(i-5)*4, high=119-(i-5)*4, low=114-(i-5)*4, close=115-(i-5)*4, volume=1000))
+    # 10: L2 (101)
+    w_candles.append(Candle(timestamp="2026-08-30T10:05:00Z", open=103, high=104, low=101, close=103, volume=1100))
+    # 11: rally toward neckline
+    w_candles.append(Candle(timestamp="2026-08-30T10:10:00Z", open=104, high=118, low=103, close=117, volume=1200))
+    # 12: breakout candle (closes at 123 > 120)
+    w_candles.append(Candle(timestamp="2026-08-30T10:15:00Z", open=118, high=124, low=117, close=123, volume=2000))
+    # 13: subsequent candle closing below neckline (closes at 118 < 120), without hitting SL (101)
+    w_candles.append(Candle(timestamp="2026-08-30T10:20:00Z", open=122, high=123, low=117, close=118, volume=1500))
+    # 14: active candle
+    w_candles.append(Candle(timestamp="2026-08-30T10:25:00Z", open=118, high=119, low=116, close=117, volume=1000))
+
+    swings, _ = SwingDetector.detect_swings(w_candles, swing_length=2, confirmation_candles=1)
+    events, confirmed, active, _ = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=w_candles,
+        swings=swings,
+        trendlines=[],
+        df_indicators=None,
+        symbol="NIFTY 50",
+        timeframe="15M",
+        atr_val=2.0
+    )
+
+    for p in confirmed:
+        assert p.status != "FALSE_BREAKOUT", "W pattern status must never be FALSE_BREAKOUT"
+        assert p.status != "FALSE BREAKOUT", "W pattern status must never be FALSE BREAKOUT"
+        if p.breakout_candle_index == 12:
+            assert p.status in ["BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED"], f"Confirmed W breakout must stay confirmed, got: {p.status}"
+
 
 
 

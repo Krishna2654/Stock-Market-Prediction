@@ -26,7 +26,7 @@ export const MWBreakoutCard: React.FC<MWBreakoutCardProps> = ({ alert, isHero = 
   const isW = alert.pattern_type === 'W';
   const currSym = alert.symbol.includes('BTC') || alert.symbol.includes('ETH') ? '$' : '₹';
 
-  const getNormalizedStatus = (): 'TARGET OPEN' | 'TARGET 1 HIT' | 'TARGET 2 HIT' | 'SL HIT' | 'FALSE BREAKOUT' => {
+  const getNormalizedStatus = (): 'TARGET OPEN' | 'TARGET 1 HIT' | 'TARGET 2 HIT' | 'SL HIT' => {
     switch (alert.status) {
       case 'TARGET 2 HIT':
       case 'TARGET_2_HIT':
@@ -37,9 +37,6 @@ export const MWBreakoutCard: React.FC<MWBreakoutCardProps> = ({ alert, isHero = 
       case 'SL HIT':
       case 'INVALIDATED':
         return 'SL HIT';
-      case 'FALSE BREAKOUT':
-      case 'FALSE_BREAKOUT':
-        return 'FALSE BREAKOUT';
       case 'TARGET OPEN':
       case 'ACTIVE':
       default:
@@ -73,13 +70,6 @@ export const MWBreakoutCard: React.FC<MWBreakoutCardProps> = ({ alert, isHero = 
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/30">
             <XCircle className="h-3.5 w-3.5" />
             <span>SL HIT</span>
-          </span>
-        );
-      case 'FALSE BREAKOUT':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/30">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            <span>FALSE BREAKOUT</span>
           </span>
         );
       case 'TARGET OPEN':

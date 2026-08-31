@@ -91,8 +91,6 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
         result = result.filter((a) => a.status === 'TARGET 1 HIT' || a.status === 'TARGET_1_HIT');
       } else if (statusFilter === 'TARGET 2 HIT') {
         result = result.filter((a) => a.status === 'TARGET 2 HIT' || a.status === 'TARGET_2_HIT');
-      } else if (statusFilter === 'FALSE BREAKOUT') {
-        result = result.filter((a) => a.status === 'FALSE BREAKOUT' || (a.status as any) === 'FALSE_BREAKOUT');
       } else {
         result = result.filter((a) => a.status === statusFilter);
       }
@@ -355,8 +353,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               { id: 'TARGET OPEN', label: 'OPEN' },
               { id: 'TARGET 1 HIT', label: 'T1 HIT' },
               { id: 'TARGET 2 HIT', label: 'T2 HIT' },
-              { id: 'SL HIT', label: 'SL HIT' },
-              { id: 'FALSE BREAKOUT', label: 'FALSE' }
+              { id: 'SL HIT', label: 'SL HIT' }
             ].map((st) => (
               <button
                 key={st.id}

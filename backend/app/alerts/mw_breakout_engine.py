@@ -45,7 +45,7 @@ class MWBreakoutAlertEngine:
                     for item in raw_alerts:
                         try:
                             # Normalize legacy status values to prompt specification
-                            if item.get("status") == "ACTIVE":
+                            if item.get("status") in ["ACTIVE", "FALSE BREAKOUT", "FALSE_BREAKOUT"]:
                                 item["status"] = "TARGET OPEN"
                             elif item.get("status") == "INVALIDATED":
                                 item["status"] = "SL HIT"
@@ -89,10 +89,9 @@ class MWBreakoutAlertEngine:
         - TARGET 2 HIT (terminal)
         - TARGET 1 HIT
         - SL HIT (terminal)
-        - FALSE BREAKOUT (terminal)
         - TARGET OPEN
         """
-        if alert.status in ["TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT"]:
+        if alert.status in ["TARGET 2 HIT", "SL HIT"]:
             return
 
         t2_val = alert.target_2 if alert.target_2 is not None else (
@@ -115,10 +114,6 @@ class MWBreakoutAlertEngine:
                 elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.low <= sl_val:
                     alert.status = "SL HIT"
                     return
-                elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.close < alert.neckline_price:
-                    # Subsequent close back below neckline before Target 1 reached
-                    alert.status = "FALSE BREAKOUT"
-                    return
             elif alert.pattern_type == "M":
                 if c.low <= t2_val:
                     alert.status = "TARGET 2 HIT"
@@ -129,13 +124,9 @@ class MWBreakoutAlertEngine:
                 elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.high >= sl_val:
                     alert.status = "SL HIT"
                     return
-                elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.close > alert.neckline_price:
-                    # Subsequent close back above neckline before Target 1 reached
-                    alert.status = "FALSE BREAKOUT"
-                    return
 
         # Check last candle close if not terminal
-        if candles and alert.status not in ["TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT"]:
+        if candles and alert.status not in ["TARGET 2 HIT", "SL HIT"]:
             curr_p = candles[-1].close
             if alert.pattern_type == "W":
                 if curr_p >= t2_val:
@@ -145,8 +136,6 @@ class MWBreakoutAlertEngine:
                         alert.status = "TARGET 1 HIT"
                 elif alert.status in ["TARGET OPEN", "ACTIVE"] and curr_p <= sl_val:
                     alert.status = "SL HIT"
-                elif alert.status in ["TARGET OPEN", "ACTIVE"] and curr_p < alert.neckline_price:
-                    alert.status = "FALSE BREAKOUT"
             elif alert.pattern_type == "M":
                 if curr_p <= t2_val:
                     alert.status = "TARGET 2 HIT"
@@ -155,8 +144,6 @@ class MWBreakoutAlertEngine:
                         alert.status = "TARGET 1 HIT"
                 elif alert.status in ["TARGET OPEN", "ACTIVE"] and curr_p >= sl_val:
                     alert.status = "SL HIT"
-                elif alert.status in ["TARGET OPEN", "ACTIVE"] and curr_p > alert.neckline_price:
-                    alert.status = "FALSE BREAKOUT"
 
     def sync_chart_patterns(
         self,
@@ -472,7 +459,6 @@ class MWBreakoutAlertEngine:
                             "TARGET 2 HIT" if pat.status in ["TARGET_2_HIT", "TARGET 2 HIT"] else
                             "TARGET 1 HIT" if pat.status in ["TARGET_1_HIT", "TARGET 1 HIT"] else
                             "SL HIT" if pat.status in ["SL_HIT", "SL HIT", "INVALIDATED"] else
-                            "FALSE BREAKOUT" if pat.status in ["FALSE_BREAKOUT", "FALSE BREAKOUT"] else
                             "TARGET OPEN"
                         ),
                         event_created_at=now_str,
@@ -513,8 +499,8 @@ class MWBreakoutAlertEngine:
             if alert.symbol != synthesis.symbol:
                 continue
 
-            # Terminal outcomes: TARGET 2 HIT, SL HIT, and FALSE BREAKOUT are final and must never be overwritten
-            if alert.status in ["TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT"]:
+            # Terminal outcomes: TARGET 2 HIT and SL HIT are final and must never be overwritten
+            if alert.status in ["TARGET 2 HIT", "SL HIT"]:
                 continue
 
             t2_val = alert.target_2 if alert.target_2 is not None else (
@@ -549,10 +535,6 @@ class MWBreakoutAlertEngine:
                             alert.status = "SL HIT"
                             status_changed = True
                             break
-                        elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.close < alert.neckline_price:
-                            alert.status = "FALSE BREAKOUT"
-                            status_changed = True
-                            break
 
                     elif alert.pattern_type == "M":
                         if c.low <= t2_val:
@@ -567,13 +549,9 @@ class MWBreakoutAlertEngine:
                             alert.status = "SL HIT"
                             status_changed = True
                             break
-                        elif alert.status in ["TARGET OPEN", "ACTIVE"] and c.close > alert.neckline_price:
-                            alert.status = "FALSE BREAKOUT"
-                            status_changed = True
-                            break
 
             # Evaluate against current live price if not yet terminal
-            if alert.status not in ["TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT"]:
+            if alert.status not in ["TARGET 2 HIT", "SL HIT"]:
                 if alert.pattern_type == "W":
                     # Priority 1: Target 2 reached (direct jump or subsequent)
                     if current_price >= t2_val:

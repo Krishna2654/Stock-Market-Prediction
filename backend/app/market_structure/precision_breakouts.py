@@ -755,7 +755,6 @@ class PrecisionBreakoutDetector:
                 breakout_vol: float = 1.25
                 is_forming = False
                 is_invalidated = False
-                is_false_breakout = False
                 is_target_1_hit = False
                 is_target_2_hit = False
 
@@ -837,10 +836,6 @@ class PrecisionBreakoutDetector:
                         elif not is_target_1_hit and (c.high >= target_analysis.invalidation_level or c.close >= target_analysis.invalidation_level):
                             is_invalidated = True
                             break
-                        # 4. Re-close back above neckline before Target 1 reached (FALSE BREAKOUT)
-                        elif not is_target_1_hit and c.close > neckline:
-                            is_false_breakout = True
-                            break
 
                 if already_moved_too_far:
                     debug_candidates.append(WMPatternStructure(
@@ -881,8 +876,6 @@ class PrecisionBreakoutDetector:
                     pat_status = "TARGET_1_HIT"
                 elif is_invalidated:
                     pat_status = "INVALIDATED"
-                elif is_false_breakout:
-                    pat_status = "FALSE_BREAKOUT"
                 elif structural_break_idx is not None:
                     if is_high_confluence and q_score >= 75:
                         pat_status = "HIGH_CONFLUENCE_CONFIRMED"
@@ -1169,7 +1162,6 @@ class PrecisionBreakoutDetector:
                 breakout_vol = 1.25
                 is_forming = False
                 is_invalidated = False
-                is_false_breakout = False
                 is_target_1_hit = False
                 is_target_2_hit = False
 
@@ -1247,10 +1239,6 @@ class PrecisionBreakoutDetector:
                         elif not is_target_1_hit and (c.low <= target_analysis.invalidation_level or c.close <= target_analysis.invalidation_level):
                             is_invalidated = True
                             break
-                        # 4. Re-close back below neckline before Target 1 reached (FALSE BREAKOUT)
-                        elif not is_target_1_hit and c.close < neckline:
-                            is_false_breakout = True
-                            break
 
                 if already_moved_too_far:
                     debug_candidates.append(WMPatternStructure(
@@ -1289,8 +1277,6 @@ class PrecisionBreakoutDetector:
                     pat_status = "TARGET_1_HIT"
                 elif is_invalidated:
                     pat_status = "INVALIDATED"
-                elif is_false_breakout:
-                    pat_status = "FALSE_BREAKOUT"
                 elif structural_break_idx is not None:
                     if is_high_confluence and q_score >= 75:
                         pat_status = "HIGH_CONFLUENCE_CONFIRMED"

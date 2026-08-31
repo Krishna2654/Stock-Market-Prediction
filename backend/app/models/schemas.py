@@ -58,7 +58,7 @@ class WMPatternStructure(BaseModel):
         "FORMING", "ACTIVE", "CONFIRMED", "BREAKOUT_FORMING", "BREAKDOWN_FORMING",
         "STRUCTURAL_BREAKOUT_CONFIRMED", "STRUCTURAL_BREAKDOWN_CONFIRMED",
         "BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED", "TARGET_1_HIT",
-        "TARGET_2_HIT", "SL_HIT", "FALSE_BREAKOUT", "FALSE BREAKOUT", "INVALIDATED", "REJECTED"
+        "TARGET_2_HIT", "SL_HIT", "INVALIDATED", "REJECTED"
     ]
     s1_index: int
     s1_price: float
@@ -391,7 +391,7 @@ class MWBreakoutAlert(BaseModel):
     quality_breakdown: Dict[str, int] = {}
 
     # Lifecycle & status tracking
-    status: Literal["TARGET OPEN", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT", "FALSE BREAKOUT", "ACTIVE", "TARGET_1_HIT", "TARGET_2_HIT", "INVALIDATED", "EXPIRED"] = "TARGET OPEN"
+    status: Literal["TARGET OPEN", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT", "ACTIVE", "TARGET_1_HIT", "TARGET_2_HIT", "INVALIDATED", "EXPIRED"] = "TARGET OPEN"
     stop_loss: Optional[float] = None
     event_created_at: str
     read: bool = False
