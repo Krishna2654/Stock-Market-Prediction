@@ -475,8 +475,8 @@ export const MWBreakoutDetailPage: React.FC = () => {
           <div className="flex items-center gap-2 text-xs text-slate-600 pt-1 font-mono">
             <Clock className="h-4 w-4 text-blue-600" />
             <span>Breakout Confirmed:</span>
-            <span className="font-bold text-slate-900">
-              {formatCandleDate(alert.breakout_candle_timestamp, alert.symbol)} • {formatMarketTime(alert.breakout_candle_timestamp, alert.symbol)}
+            <span className="font-bold text-blue-600">
+              {formatMarketDateTime(alert.breakout_candle_timestamp, alert.symbol)}
             </span>
           </div>
         </div>

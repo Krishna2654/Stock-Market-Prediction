@@ -21,6 +21,8 @@ export function getInstrumentTimezone(_symbolOrTicker?: string): string {
 
 /**
  * Safely converts any timestamp (ISO string, epoch ms/sec, Date) into a JavaScript Date object.
+ * Naive ISO datetime strings without explicit offset (e.g. '2026-08-31 07:00:00' or '2026-08-31T07:00:00')
+ * are normalized to UTC by appending 'Z' to avoid client-local timezone interpretation.
  */
 export function parseTimestamp(ts: string | number | Date | null | undefined): Date | null {
   if (!ts) return null;
@@ -33,14 +35,17 @@ export function parseTimestamp(ts: string | number | Date | null | undefined): D
     return isNaN(d.getTime()) ? null : d;
   }
 
-  const s = String(ts).trim();
+  let s = String(ts).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s) && !/([+-]\d{2}:?\d{2}|Z)$/i.test(s)) {
+    s = s.replace(' ', 'T') + 'Z';
+  }
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
 }
 
 /**
- * Formats time as 'HH:mm IST' (or 'HH:mm').
- * Example: '09:15 IST' or '12:30 IST'
+ * Formats time as 'hh:mm A IST' (or 'hh:mm A').
+ * Example: '09:15 AM IST' or '12:30 PM IST'
  */
 export function formatMarketTime(
   ts: string | number | Date | null | undefined,
@@ -54,11 +59,11 @@ export function formatMarketTime(
   const suffix = ' IST';
 
   try {
-    const formatter = new Intl.DateTimeFormat('en-IN', {
+    const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       hour: '2-digit',
       minute: '2-digit',
-      hour12: false
+      hour12: true
     });
     const formatted = formatter.format(d);
     return includeSuffix ? `${formatted}${suffix}` : formatted;
@@ -68,8 +73,8 @@ export function formatMarketTime(
 }
 
 /**
- * Formats intraday candle time as 'HH:mm' in Asia/Kolkata (IST).
- * Example: '09:15'
+ * Formats intraday candle time as 'hh:mm A' in Asia/Kolkata (IST).
+ * Example: '12:30 PM'
  */
 export function formatCandleTime(
   ts: string | number | Date | null | undefined,
@@ -140,8 +145,8 @@ export function formatMarketDateTime(
 }
 
 /**
- * Formats clock/last updated time as 'HH:mm:ss IST' in Asia/Kolkata.
- * Example: '10:43:27 IST'
+ * Formats clock/last updated time as 'hh:mm:ss A IST' in Asia/Kolkata.
+ * Example: '12:30:45 PM IST'
  */
 export function formatMarketTimeWithSeconds(
   ts: string | number | Date | null | undefined,
@@ -154,12 +159,12 @@ export function formatMarketTimeWithSeconds(
   const suffix = ' IST';
 
   try {
-    const formatter = new Intl.DateTimeFormat('en-IN', {
+    const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: false
+      hour12: true
     });
     return `${formatter.format(d)}${suffix}`;
   } catch (e) {

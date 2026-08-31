@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MWBreakoutAlert } from '../types';
-import { formatMarketTime, formatCandleDate } from '../utils/time';
+import { formatMarketTime, formatCandleDate, formatMarketDateTime } from '../utils/time';
 import {
   TrendingUp,
   TrendingDown,
@@ -147,32 +147,50 @@ export const MWBreakoutCard: React.FC<MWBreakoutCardProps> = ({ alert, isHero = 
             <Clock className="h-3.5 w-3.5 text-blue-600 shrink-0" />
             <span>Breakout Confirmed:</span>
           </div>
-          <div className="text-right font-mono font-bold text-slate-900">
-            <span>{formatCandleDate(alert.breakout_candle_timestamp, alert.symbol)} • </span>
-            <span className="text-blue-600 font-extrabold">
-              {formatMarketTime(alert.breakout_candle_timestamp, alert.symbol)}
-            </span>
+          <div className="text-right font-mono font-bold text-blue-600">
+            {formatMarketDateTime(alert.breakout_candle_timestamp, alert.symbol)}
           </div>
         </div>
 
         {/* Structural Metrics Grid */}
         <div className="grid grid-cols-2 gap-2 text-xs py-1">
           {/* Pattern Column */}
-          <div className="p-2.5 rounded-xl bg-slate-50/60 border border-slate-100 space-y-1">
+          <div className="p-2.5 rounded-xl bg-slate-50/60 border border-slate-100 space-y-1.5">
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
               Pattern Geometry
             </div>
-            <div className="flex justify-between text-slate-700">
-              <span>{isW ? 'Low 1:' : 'High 1:'}</span>
-              <span className="font-mono font-bold">{currSym}{alert.s1_price.toLocaleString()}</span>
+            <div>
+              <div className="flex justify-between text-slate-700">
+                <span>{isW ? 'Low 1 (Pt 1):' : 'High 1 (Pt 1):'}</span>
+                <span className="font-mono font-bold">{currSym}{alert.s1_price.toLocaleString()}</span>
+              </div>
+              {alert.s1_timestamp && (
+                <div className="text-[10px] font-mono text-slate-400 text-right">
+                  {formatMarketDateTime(alert.s1_timestamp, alert.symbol)}
+                </div>
+              )}
             </div>
-            <div className="flex justify-between text-slate-700">
-              <span>{isW ? 'Low 2:' : 'High 2:'}</span>
-              <span className="font-mono font-bold">{currSym}{alert.s2_price.toLocaleString()}</span>
+            <div>
+              <div className="flex justify-between text-slate-700">
+                <span>Neckline:</span>
+                <span className="font-mono font-bold text-purple-700">{currSym}{alert.neckline_price.toLocaleString()}</span>
+              </div>
+              {alert.neckline_timestamp && (
+                <div className="text-[10px] font-mono text-purple-600/70 text-right">
+                  {formatMarketDateTime(alert.neckline_timestamp, alert.symbol)}
+                </div>
+              )}
             </div>
-            <div className="flex justify-between text-slate-700">
-              <span>Neckline:</span>
-              <span className="font-mono font-bold text-purple-700">{currSym}{alert.neckline_price.toLocaleString()}</span>
+            <div>
+              <div className="flex justify-between text-slate-700">
+                <span>{isW ? 'Low 2 (Pt 2):' : 'High 2 (Pt 2):'}</span>
+                <span className="font-mono font-bold">{currSym}{alert.s2_price.toLocaleString()}</span>
+              </div>
+              {alert.s2_timestamp && (
+                <div className="text-[10px] font-mono text-slate-400 text-right">
+                  {formatMarketDateTime(alert.s2_timestamp, alert.symbol)}
+                </div>
+              )}
             </div>
             <div className="flex justify-between text-slate-500 text-[11px] pt-0.5 border-t border-slate-200/60">
               <span>Height:</span>
