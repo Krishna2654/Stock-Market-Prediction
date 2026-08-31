@@ -952,5 +952,518 @@ def test_24_detector_no_false_breakout_for_wm_patterns():
             assert p.status in ["BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED"], f"Confirmed W breakout must stay confirmed, got: {p.status}"
 
 
+# =========================================================================
+# GENERIC MULTI-SYMBOL & MULTI-TIMEFRAME HISTORICAL OUTCOME LIFECYCLE TESTS
+# Note: RELIANCE 1H is a reproduction case, not the scope of the fix.
+# The scope is the complete W/M historical outcome lifecycle across all
+# configured symbols and all supported timeframes.
+# =========================================================================
+
+def test_25_generic_w_t1_winner_protected_against_subsequent_crash():
+    """
+    GENERIC TEST: Any symbol (e.g. BTC/USD 15M) W breakout reaches Target 1,
+    then subsequent candles crash far below the stop loss.
+    Outcome must remain TARGET 1 HIT and NEVER become SL HIT.
+    """
+    mw_breakout_engine.clear_alerts()
+    alert = MWBreakoutAlert(
+        alert_id="mw_test_btc_15m_w",
+        alert_type="W_BREAKOUT_CONFIRMED",
+        pattern_type="W",
+        direction="UP",
+        symbol="BTC/USD",
+        ticker="BTC-USD",
+        timeframe="15M",
+        pattern_id="btc_w_1",
+        s1_price=60000.0,
+        s1_timestamp="2026-08-20T10:00:00Z",
+        s2_price=60100.0,
+        s2_timestamp="2026-08-20T11:00:00Z",
+        neckline_price=61000.0,
+        neckline_timestamp="2026-08-20T10:30:00Z",
+        pattern_height=1000.0,
+        breakout_candle_timestamp="2026-08-20T11:15:00Z",
+        breakout_open=60950.0,
+        breakout_high=61100.0,
+        breakout_low=60900.0,
+        breakout_close=61050.0,
+        trendline_price=61000.0,
+        ema20_price=60950.0,
+        measured_target=62000.0,      # T1
+        target_2=63000.0,             # T2
+        invalidation_level=59900.0,   # SL
+        quality_score=85,
+        status="TARGET OPEN",
+        event_created_at="2026-08-20T11:15:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert)
+
+    # Subsequent candles:
+    # 1. Touches 62100 (T1 hit!)
+    # 2. Reverses and crashes to 58000 (below SL 59900)
+    subsequent_candles = [
+        Candle(timestamp="2026-08-20T11:30:00Z", open=61100, high=62200, low=61050, close=62150, volume=100),
+        Candle(timestamp="2026-08-20T11:45:00Z", open=62150, high=62200, low=58000, close=58500, volume=200)
+    ]
+
+    mw_breakout_engine.replay_alert_lifecycle(alert, subsequent_candles)
+    assert alert.status == "TARGET 1 HIT", f"W breakout hitting T1 must remain TARGET 1 HIT forever even after crash, got: {alert.status}"
+
+
+def test_26_generic_w_t2_terminal_winner_is_immutable():
+    """
+    GENERIC TEST: Any symbol (e.g. NIFTY 50 1H) W breakout reaches Target 2.
+    Outcome must become TARGET 2 HIT and cannot be changed by any later action.
+    """
+    mw_breakout_engine.clear_alerts()
+    alert = MWBreakoutAlert(
+        alert_id="mw_test_nifty_1h_w",
+        alert_type="W_BREAKOUT_CONFIRMED",
+        pattern_type="W",
+        direction="UP",
+        symbol="NIFTY 50",
+        ticker="^NSEI",
+        timeframe="1H",
+        pattern_id="nifty_w_1",
+        s1_price=24000.0,
+        s1_timestamp="2026-08-21T09:15:00Z",
+        s2_price=24020.0,
+        s2_timestamp="2026-08-21T11:15:00Z",
+        neckline_price=24300.0,
+        neckline_timestamp="2026-08-21T10:15:00Z",
+        pattern_height=300.0,
+        breakout_candle_timestamp="2026-08-21T12:15:00Z",
+        breakout_open=24280.0,
+        breakout_high=24350.0,
+        breakout_low=24270.0,
+        breakout_close=24320.0,
+        trendline_price=24300.0,
+        ema20_price=24250.0,
+        measured_target=24600.0,      # T1 = 24300 + 300 = 24600
+        target_2=24900.0,             # T2 = 24300 + 600 = 24900
+        invalidation_level=23950.0,   # SL
+        quality_score=88,
+        status="TARGET OPEN",
+        event_created_at="2026-08-21T12:15:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert)
+
+    # Candle 1 hits T1 (24650)
+    # Candle 2 hits T2 (24950)
+    # Candle 3 crashes to 23000
+    candles = [
+        Candle(timestamp="2026-08-21T13:15:00Z", open=24330, high=24650, low=24320, close=24620, volume=5000),
+        Candle(timestamp="2026-08-21T14:15:00Z", open=24620, high=24950, low=24600, close=24920, volume=7000),
+        Candle(timestamp="2026-08-21T15:15:00Z", open=24900, high=24900, low=23000, close=23500, volume=9000),
+    ]
+
+    mw_breakout_engine.replay_alert_lifecycle(alert, candles)
+    assert alert.status == "TARGET 2 HIT", f"W breakout hitting T2 must be TARGET 2 HIT, got: {alert.status}"
+
+
+def test_27_generic_w_sl_hit_before_target():
+    """
+    GENERIC TEST: Any symbol (e.g. BANK NIFTY 5M) W breakout hits SL before any target.
+    Must be marked SL HIT and cannot be revived by subsequent rally.
+    """
+    mw_breakout_engine.clear_alerts()
+    alert = MWBreakoutAlert(
+        alert_id="mw_test_bnf_5m_w",
+        alert_type="W_BREAKOUT_CONFIRMED",
+        pattern_type="W",
+        direction="UP",
+        symbol="BANK NIFTY",
+        ticker="^NSEBANK",
+        timeframe="5M",
+        pattern_id="bnf_w_1",
+        s1_price=51000.0,
+        s1_timestamp="2026-08-22T09:15:00Z",
+        s2_price=51020.0,
+        s2_timestamp="2026-08-22T09:45:00Z",
+        neckline_price=51300.0,
+        neckline_timestamp="2026-08-22T09:30:00Z",
+        pattern_height=300.0,
+        breakout_candle_timestamp="2026-08-22T09:55:00Z",
+        breakout_open=51280.0,
+        breakout_high=51350.0,
+        breakout_low=51270.0,
+        breakout_close=51320.0,
+        trendline_price=51300.0,
+        ema20_price=51250.0,
+        measured_target=51600.0,
+        target_2=51900.0,
+        invalidation_level=50950.0,
+        quality_score=80,
+        status="TARGET OPEN",
+        event_created_at="2026-08-22T09:55:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert)
+
+    # Candle 1 drops straight below SL to 50900
+    # Candle 2 rallies to 52000
+    candles = [
+        Candle(timestamp="2026-08-22T10:00:00Z", open=51300, high=51310, low=50900, close=50920, volume=1000),
+        Candle(timestamp="2026-08-22T10:05:00Z", open=50950, high=52000, low=50950, close=51980, volume=2000),
+    ]
+
+    mw_breakout_engine.replay_alert_lifecycle(alert, candles)
+    assert alert.status == "SL HIT", f"W breakout hitting SL first must remain SL HIT, got: {alert.status}"
+
+
+def test_28_generic_m_t1_winner_protected_against_subsequent_rally():
+    """
+    GENERIC TEST: Any symbol (e.g. TCS 4H) M breakdown hits Target 1,
+    then subsequent candles rally far above SL.
+    Outcome must remain TARGET 1 HIT and NEVER become SL HIT.
+    """
+    mw_breakout_engine.clear_alerts()
+    alert = MWBreakoutAlert(
+        alert_id="mw_test_tcs_4h_m",
+        alert_type="M_BREAKDOWN_CONFIRMED",
+        pattern_type="M",
+        direction="DOWN",
+        symbol="TCS",
+        ticker="TCS.NS",
+        timeframe="4H",
+        pattern_id="tcs_m_1",
+        s1_price=4500.0,
+        s1_timestamp="2026-08-10T09:15:00Z",
+        s2_price=4490.0,
+        s2_timestamp="2026-08-12T09:15:00Z",
+        neckline_price=4400.0,
+        neckline_timestamp="2026-08-11T09:15:00Z",
+        pattern_height=100.0,
+        breakout_candle_timestamp="2026-08-13T09:15:00Z",
+        breakout_open=4410.0,
+        breakout_high=4415.0,
+        breakout_low=4380.0,
+        breakout_close=4385.0,
+        trendline_price=4400.0,
+        ema20_price=4420.0,
+        measured_target=4300.0,      # T1 = 4400 - 100 = 4300
+        target_2=4200.0,             # T2 = 4400 - 200 = 4200
+        invalidation_level=4520.0,   # SL
+        quality_score=85,
+        status="TARGET OPEN",
+        event_created_at="2026-08-13T09:15:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert)
+
+    # Subsequent candles:
+    # 1. Touches 4290 (T1 hit!)
+    # 2. Reverses and rallies to 4600 (above SL 4520)
+    subsequent_candles = [
+        Candle(timestamp="2026-08-14T09:15:00Z", open=4380, high=4385, low=4280, close=4295, volume=1000),
+        Candle(timestamp="2026-08-15T09:15:00Z", open=4300, high=4650, low=4290, close=4620, volume=2000)
+    ]
+
+    mw_breakout_engine.replay_alert_lifecycle(alert, subsequent_candles)
+    assert alert.status == "TARGET 1 HIT", f"M breakdown hitting T1 must remain TARGET 1 HIT forever even after rally, got: {alert.status}"
+
+
+def test_29_generic_m_t2_terminal_winner():
+    """
+    GENERIC TEST: Any symbol (e.g. INFY 15M) M breakdown reaches Target 2.
+    Outcome must be TARGET 2 HIT.
+    """
+    mw_breakout_engine.clear_alerts()
+    alert = MWBreakoutAlert(
+        alert_id="mw_test_infy_15m_m",
+        alert_type="M_BREAKDOWN_CONFIRMED",
+        pattern_type="M",
+        direction="DOWN",
+        symbol="INFY",
+        ticker="INFY.NS",
+        timeframe="15M",
+        pattern_id="infy_m_1",
+        s1_price=1800.0,
+        s1_timestamp="2026-08-20T10:00:00Z",
+        s2_price=1798.0,
+        s2_timestamp="2026-08-20T11:00:00Z",
+        neckline_price=1760.0,
+        neckline_timestamp="2026-08-20T10:30:00Z",
+        pattern_height=40.0,
+        breakout_candle_timestamp="2026-08-20T11:15:00Z",
+        breakout_open=1762.0,
+        breakout_high=1764.0,
+        breakout_low=1752.0,
+        breakout_close=1754.0,
+        trendline_price=1760.0,
+        ema20_price=1765.0,
+        measured_target=1720.0,
+        target_2=1680.0,
+        invalidation_level=1810.0,
+        quality_score=84,
+        status="TARGET OPEN",
+        event_created_at="2026-08-20T11:15:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert)
+
+    candles = [
+        Candle(timestamp="2026-08-20T11:30:00Z", open=1754, high=1755, low=1715, close=1718, volume=500),
+        Candle(timestamp="2026-08-20T11:45:00Z", open=1718, high=1720, low=1675, close=1678, volume=800),
+    ]
+
+    mw_breakout_engine.replay_alert_lifecycle(alert, candles)
+    assert alert.status == "TARGET 2 HIT", f"M breakdown reaching T2 must be TARGET 2 HIT, got: {alert.status}"
+
+
+def test_30_generic_m_sl_hit_before_target():
+    """
+    GENERIC TEST: Any symbol (e.g. ICICIBANK 1H) M breakdown hits SL before any target.
+    Must be marked SL HIT and cannot be revived.
+    """
+    mw_breakout_engine.clear_alerts()
+    alert = MWBreakoutAlert(
+        alert_id="mw_test_icici_1h_m",
+        alert_type="M_BREAKDOWN_CONFIRMED",
+        pattern_type="M",
+        direction="DOWN",
+        symbol="ICICIBANK",
+        ticker="ICICIBANK.NS",
+        timeframe="1H",
+        pattern_id="icici_m_1",
+        s1_price=1200.0,
+        s1_timestamp="2026-08-22T09:15:00Z",
+        s2_price=1198.0,
+        s2_timestamp="2026-08-22T11:15:00Z",
+        neckline_price=1170.0,
+        neckline_timestamp="2026-08-22T10:15:00Z",
+        pattern_height=30.0,
+        breakout_candle_timestamp="2026-08-22T12:15:00Z",
+        breakout_open=1172.0,
+        breakout_high=1173.0,
+        breakout_low=1162.0,
+        breakout_close=1164.0,
+        trendline_price=1170.0,
+        ema20_price=1175.0,
+        measured_target=1140.0,
+        target_2=1110.0,
+        invalidation_level=1205.0,
+        quality_score=82,
+        status="TARGET OPEN",
+        event_created_at="2026-08-22T12:15:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert)
+
+    # Immediately spikes to 1210 (above SL 1205)
+    candles = [
+        Candle(timestamp="2026-08-22T13:15:00Z", open=1165, high=1215, low=1160, close=1210, volume=3000),
+    ]
+
+    mw_breakout_engine.replay_alert_lifecycle(alert, candles)
+    assert alert.status == "SL HIT", f"M breakdown hitting SL first must be SL HIT, got: {alert.status}"
+
+
+def test_31_repeated_scans_preserve_terminal_and_winner_states():
+    """
+    GENERIC TEST: Repeated scans and chart syncs across cycles must never alter
+    or reset terminal states (TARGET 2 HIT, SL HIT) or locked winning states (TARGET 1 HIT).
+    """
+    mw_breakout_engine.clear_alerts()
+    alert_t1 = MWBreakoutAlert(
+        alert_id="mw_test_hparam_t1",
+        alert_type="W_BREAKOUT_CONFIRMED",
+        pattern_type="W",
+        direction="UP",
+        symbol="HDFCBANK",
+        ticker="HDFCBANK.NS",
+        timeframe="15M",
+        pattern_id="hdfc_w_1",
+        s1_price=1600.0,
+        s1_timestamp="2026-08-20T10:00:00Z",
+        s2_price=1605.0,
+        s2_timestamp="2026-08-20T11:00:00Z",
+        neckline_price=1640.0,
+        neckline_timestamp="2026-08-20T10:30:00Z",
+        pattern_height=40.0,
+        breakout_candle_timestamp="2026-08-20T11:15:00Z",
+        breakout_open=1638.0,
+        breakout_high=1645.0,
+        breakout_low=1635.0,
+        breakout_close=1642.0,
+        trendline_price=1640.0,
+        ema20_price=1630.0,
+        measured_target=1680.0,
+        target_2=1720.0,
+        invalidation_level=1590.0,
+        quality_score=85,
+        status="TARGET 1 HIT",
+        event_created_at="2026-08-20T11:15:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert_t1)
+
+    # Synthesis run with price collapsing to 1400 (far below SL)
+    synth = _make_synth("HDFCBANK", price=1400.0)
+    mw_breakout_engine._update_existing_alert_statuses(synth)
+
+    # Must stay TARGET 1 HIT!
+    assert alert_t1.status == "TARGET 1 HIT", "TARGET 1 HIT must be preserved across scan cycles"
+
+
+def test_32_strict_timeframe_isolation():
+    """
+    GENERIC TEST: Timeframe fidelity. A 1H alert must only be evaluated against 1H candles.
+    If only 5M or 15M candles are provided, 1H alert status must remain unchanged.
+    """
+    mw_breakout_engine.clear_alerts()
+    alert_1h = MWBreakoutAlert(
+        alert_id="mw_test_sbin_1h",
+        alert_type="W_BREAKOUT_CONFIRMED",
+        pattern_type="W",
+        direction="UP",
+        symbol="SBIN",
+        ticker="SBIN.NS",
+        timeframe="1H",
+        pattern_id="sbin_1h_w",
+        s1_price=800.0,
+        s1_timestamp="2026-08-20T10:00:00Z",
+        s2_price=802.0,
+        s2_timestamp="2026-08-20T12:00:00Z",
+        neckline_price=820.0,
+        neckline_timestamp="2026-08-20T11:00:00Z",
+        pattern_height=20.0,
+        breakout_candle_timestamp="2026-08-20T13:00:00Z",
+        breakout_open=818.0,
+        breakout_high=824.0,
+        breakout_low=817.0,
+        breakout_close=822.0,
+        trendline_price=820.0,
+        ema20_price=815.0,
+        measured_target=840.0,
+        target_2=860.0,
+        invalidation_level=795.0,
+        quality_score=85,
+        status="TARGET OPEN",
+        event_created_at="2026-08-20T13:00:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert_1h)
+
+    # Provide only 5M candles that touch 790 (which would be SL breach if cross-timeframe were allowed)
+    m5_candles = [
+        Candle(timestamp="2026-08-20T13:05:00Z", open=820, high=821, low=790, close=792, volume=100)
+    ]
+    synth = _make_synth("SBIN", price=820.0)
+
+    # Call _update_existing_alert_statuses with only 5M candles in mtf_candles
+    mw_breakout_engine._update_existing_alert_statuses(synth, mtf_candles={"5M": m5_candles})
+
+    # The 1H alert must NOT have evaluated against 5M candles and must remain TARGET OPEN
+    assert alert_1h.status == "TARGET OPEN", "1H alert must not be evaluated against 5M candles"
+
+
+def test_33_zero_overwrite_by_today_market_price():
+    """
+    GENERIC TEST: Completed historical trades cannot be overwritten by today's live market price.
+    """
+    mw_breakout_engine.clear_alerts()
+    alert_t1 = MWBreakoutAlert(
+        alert_id="mw_test_airtel_4h",
+        alert_type="W_BREAKOUT_CONFIRMED",
+        pattern_type="W",
+        direction="UP",
+        symbol="BHARTI AIRTEL",
+        ticker="BHARTIARTL.NS",
+        timeframe="4H",
+        pattern_id="airtel_4h_w",
+        s1_price=1400.0,
+        s1_timestamp="2026-07-15T09:15:00Z",
+        s2_price=1405.0,
+        s2_timestamp="2026-07-20T09:15:00Z",
+        neckline_price=1460.0,
+        neckline_timestamp="2026-07-18T09:15:00Z",
+        pattern_height=60.0,
+        breakout_candle_timestamp="2026-07-22T09:15:00Z",
+        breakout_open=1455.0,
+        breakout_high=1468.0,
+        breakout_low=1452.0,
+        breakout_close=1465.0,
+        trendline_price=1460.0,
+        ema20_price=1440.0,
+        measured_target=1520.0,
+        target_2=1580.0,
+        invalidation_level=1390.0,
+        quality_score=87,
+        status="TARGET 1 HIT",
+        event_created_at="2026-07-22T09:15:00Z"
+    )
+    mw_breakout_engine.alerts.append(alert_t1)
+
+    # Today's price in live market is 1350 (far below invalidation_level 1390)
+    synth = _make_synth("BHARTI AIRTEL", price=1350.0)
+    mw_breakout_engine.process_synthesis_with_updates(synth)
+
+    assert alert_t1.status == "TARGET 1 HIT", "Historical trade with TARGET 1 HIT must never be overwritten to SL HIT by today's price"
+
+
+def test_34_regression_case_reliance_1h_w_breakout():
+    """
+    REPRODUCTION / REGRESSION TEST:
+    Verifies that the historical RELIANCE 1H W breakout from 2026-07-30T11:15:00+05:30
+    evaluates correctly to TARGET 1 HIT on historical replay.
+    Geometry:
+    - S1 (2026-07-23 10:15): ₹1,268.05
+    - Mid Peak Neckline (2026-07-27 10:15): ₹1,296.12
+    - S2 (2026-07-29 11:15): ₹1,269.80
+    - Pattern Height: ₹28.07
+    - Breakout Candle (2026-07-30 11:15): Close ₹1,299.13 > Neckline ₹1,296.12
+    - Target 1: ₹1,324.19 (measured target)
+    - Invalidation SL: ₹1,265.14
+    - Candle on 2026-08-07 09:15 touched High ₹1,331.50 >= ₹1,324.19
+    - Lowest low between breakout and Aug 7 was ₹1,271.10 (SL of ₹1,265.14 was never touched).
+    Outcome: TARGET 1 HIT.
+    """
+    mw_breakout_engine.clear_alerts()
+    rel_alert = MWBreakoutAlert(
+        alert_id="mw_RELIANCE_1H_W_2026-07-30T11-15-00-05-30",
+        alert_type="W_BREAKOUT_CONFIRMED",
+        pattern_type="W",
+        direction="UP",
+        symbol="RELIANCE",
+        ticker="RELIANCE.NS",
+        timeframe="1H",
+        pattern_id="RELIANCE_1H_W_HISTORICAL",
+        s1_price=1268.05,
+        s1_timestamp="2026-07-23T10:15:00+05:30",
+        s2_price=1269.80,
+        s2_timestamp="2026-07-29T11:15:00+05:30",
+        neckline_price=1296.12,
+        neckline_timestamp="2026-07-27T10:15:00+05:30",
+        pattern_height=28.07,
+        breakout_candle_timestamp="2026-07-30T11:15:00+05:30",
+        breakout_open=1294.0,
+        breakout_high=1301.0,
+        breakout_low=1293.0,
+        breakout_close=1299.13,
+        trendline_price=1296.12,
+        ema20_price=1285.0,
+        measured_target=1324.19,
+        target_2=1352.26,
+        invalidation_level=1265.14,
+        quality_score=86,
+        status="TARGET OPEN",
+        event_created_at="2026-07-30T11:15:00+05:30"
+    )
+    mw_breakout_engine.alerts.append(rel_alert)
+
+    # Replay subsequent candles chronologically
+    subsequent_candles = [
+        # Candle 1: Retest consolidation (Low 1275, High 1305)
+        Candle(timestamp="2026-07-30T12:15:00+05:30", open=1299.0, high=1305.0, low=1275.0, close=1285.0, volume=50000),
+        # Candle 2: Consolidation (Low 1271.10 - lowest low before rally, above SL 1265.14)
+        Candle(timestamp="2026-08-01T09:15:00+05:30", open=1285.0, high=1290.0, low=1271.10, close=1288.0, volume=60000),
+        # Candle 3: Rally starts
+        Candle(timestamp="2026-08-05T09:15:00+05:30", open=1290.0, high=1315.0, low=1288.0, close=1312.0, volume=80000),
+        # Candle 4: Touches High 1331.50 (exceeds T1 1324.19)
+        Candle(timestamp="2026-08-07T09:15:00+05:30", open=1315.0, high=1331.50, low=1310.0, close=1328.0, volume=120000),
+        # Candle 5: Days later market drops to 1250 (below SL)
+        Candle(timestamp="2026-08-20T09:15:00+05:30", open=1300.0, high=1302.0, low=1250.0, close=1255.0, volume=90000),
+    ]
+
+    mw_breakout_engine.replay_alert_lifecycle(rel_alert, subsequent_candles)
+    assert rel_alert.status == "TARGET 1 HIT", f"RELIANCE 1H W breakout must be TARGET 1 HIT, got: {rel_alert.status}"
+
+
+
 
 

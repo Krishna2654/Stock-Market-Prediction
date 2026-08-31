@@ -203,6 +203,7 @@ class MultiTimeframeAnalyzer:
             status_message=status_message,
             current_price=round(current_price, 2),
             timeframes=analyses,
+            mtf_candles=mtf_candles,
             overall_bias=overall_bias,
             current_state=current_state,
             evidence_score=evidence_score,

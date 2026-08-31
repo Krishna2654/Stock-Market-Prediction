@@ -243,6 +243,7 @@ class MultiTimeframeSynthesis(BaseModel):
     status_message: str
     current_price: float
     timeframes: Dict[str, SingleTimeframeAnalysis]
+    mtf_candles: Optional[Dict[str, List[Candle]]] = Field(default=None, exclude=True)
     overall_bias: Literal["BULLISH", "BEARISH", "NEUTRAL", "MIXED"]
     current_state: Literal[
         "FULL BULLISH ALIGNMENT",
