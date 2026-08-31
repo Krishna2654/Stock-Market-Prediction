@@ -47,8 +47,14 @@ class PatternTargetAnalysis(BaseModel):
     retest_level: float
     retest_status: str = "PENDING_RETEST"  # "HOLDING", "FAILED_RETEST", "PENDING_RETEST"
     pattern_status: str = "CONFIRMED_BREAKOUT"  # "FORMING", "CONFIRMED_BREAKOUT", "TARGET_ACTIVE", "TARGET_HIT", "INVALIDATED"
-    pattern_quality_score: int = 85
+    pattern_quality_score: int = 100
     quality_breakdown: Dict[str, int] = {}
+    reversal_score: int = 40
+    trendline_score: int = 0
+    ema_score: int = 0
+    reversal_points: int = 40
+    trendline_points: int = 0
+    ema_points: int = 0
     interpretation: str = ""
 
 class WMPatternStructure(BaseModel):
@@ -58,7 +64,7 @@ class WMPatternStructure(BaseModel):
         "FORMING", "ACTIVE", "CONFIRMED", "BREAKOUT_FORMING", "BREAKDOWN_FORMING",
         "STRUCTURAL_BREAKOUT_CONFIRMED", "STRUCTURAL_BREAKDOWN_CONFIRMED",
         "BREAKOUT_CONFIRMED", "HIGH_CONFLUENCE_CONFIRMED", "TARGET_1_HIT",
-        "TARGET_2_HIT", "SL_HIT", "INVALIDATED", "REJECTED"
+        "TARGET_2_HIT", "INVALIDATED", "REJECTED", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT"
     ]
     s1_index: int
     s1_price: float
@@ -74,6 +80,12 @@ class WMPatternStructure(BaseModel):
     symmetry_atr: float
     bar_separation: int
     quality_score: int
+    reversal_score: int = 40
+    trendline_score: int = 0
+    ema_score: int = 0
+    reversal_points: int = 40
+    trendline_points: int = 0
+    ema_points: int = 0
     breakout_candle_index: Optional[int] = None
     breakout_candle_time: Optional[str] = None
     breakout_close: Optional[float] = None
@@ -87,6 +99,7 @@ class WMPatternStructure(BaseModel):
     target_1: Optional[float] = None
     target_2: Optional[float] = None
     stop_loss: Optional[float] = None
+    outcome_timestamp: Optional[str] = None
 
 class StructureBreakEvent(BaseModel):
     id: str
@@ -390,9 +403,16 @@ class MWBreakoutAlert(BaseModel):
     invalidation_level: float
     quality_score: int
     quality_breakdown: Dict[str, int] = {}
+    reversal_score: int = 40
+    trendline_score: int = 0
+    ema_score: int = 0
+    reversal_points: int = 40
+    trendline_points: int = 0
+    ema_points: int = 0
 
     # Lifecycle & status tracking
     status: Literal["TARGET OPEN", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT", "ACTIVE", "TARGET_1_HIT", "TARGET_2_HIT", "INVALIDATED", "EXPIRED"] = "TARGET OPEN"
+    outcome_timestamp: Optional[str] = None
     stop_loss: Optional[float] = None
     event_created_at: str
     read: bool = False

@@ -250,38 +250,49 @@ export const MWBreakoutCard: React.FC<MWBreakoutCardProps> = ({ alert, isHero = 
           </div>
 
           {/* Trade Outcome Status */}
-          <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100">
-            <span className="text-[11px] font-bold uppercase text-slate-500">Status:</span>
-            <span
-              className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-black tracking-wide ${
-                normStatus === 'TARGET 2 HIT'
-                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                  : normStatus === 'TARGET 1 HIT'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : normStatus === 'SL HIT'
-                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                  : 'bg-blue-50 text-blue-700 border border-blue-200'
-              }`}
-            >
-              {normStatus}
-            </span>
+          <div className="flex flex-col gap-1 pt-1.5 border-t border-slate-100">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[11px] font-bold uppercase text-slate-500">Status:</span>
+              <span
+                className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-black tracking-wide ${
+                  normStatus === 'TARGET 2 HIT'
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : normStatus === 'TARGET 1 HIT'
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    : normStatus === 'SL HIT'
+                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                    : 'bg-blue-50 text-blue-700 border border-blue-200'
+                }`}
+              >
+                {normStatus}
+              </span>
+            </div>
+            {alert.outcome_timestamp && (
+              <div className="text-[10px] font-mono text-slate-500 text-right">
+                Hit at: <span className="font-semibold text-slate-700">{formatMarketDateTime(alert.outcome_timestamp, alert.symbol)}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Card Footer: Quality Score & Action Button */}
       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5 text-slate-400" />
-          <span className="text-xs text-slate-600">Quality:</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
-              alert.quality_score >= 85
-                ? 'bg-emerald-100 text-emerald-800'
-                : 'bg-blue-100 text-blue-800'
-            }`}
-          >
-            {alert.quality_score}/100
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1.5">
+            <Activity className="h-3.5 w-3.5 text-slate-400" />
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
+                alert.quality_score >= 85
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-blue-100 text-blue-800'
+              }`}
+            >
+              VALUE: {alert.quality_score}/100
+            </span>
+          </div>
+          <span className="text-[10px] text-slate-500 font-medium">
+            Reversal {alert.reversal_score ?? 40} • Trendline {alert.trendline_score ?? 0} • EMA {alert.ema_score ?? 0}
           </span>
         </div>
 

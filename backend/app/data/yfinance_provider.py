@@ -55,13 +55,13 @@ class YahooFinanceProvider(MarketDataProvider):
 
     def _sync_fetch(self, ticker: str, timeframe: str, limit: int) -> List[Candle]:
         tf_config = {
-            "5M": {"interval": "5m", "period": "5d"},
-            "15M": {"interval": "15m", "period": "10d"},
-            "1H": {"interval": "60m", "period": "30d"},
-            "4H": {"interval": "60m", "period": "30d"}
+            "5M": {"interval": "5m", "period": "60d"},
+            "15M": {"interval": "15m", "period": "60d"},
+            "1H": {"interval": "60m", "period": "730d"},
+            "4H": {"interval": "60m", "period": "730d"}
         }
         
-        cfg = tf_config.get(timeframe, {"interval": "60m", "period": "30d"})
+        cfg = tf_config.get(timeframe, {"interval": "60m", "period": "60d"})
         t = self._get_ticker_instance(ticker)
         
         for attempt in range(self._retry_attempts):

@@ -29,137 +29,68 @@ class PrecisionBreakoutDetector:
     def calculate_wm_quality_score(
         cls,
         pattern_type: str,
-        s1: SwingPoint,
-        neckline_swing: SwingPoint,
-        s2: SwingPoint,
-        neckline_price: float,
-        breakout_candle: Optional[Candle],
-        tl: Optional[Trendline],
-        ema_20: Optional[float],
-        atr_val: float,
-        rel_vol: float
+        s1: Optional[SwingPoint] = None,
+        neckline_swing: Optional[SwingPoint] = None,
+        s2: Optional[SwingPoint] = None,
+        neckline_price: Optional[float] = None,
+        breakout_candle: Optional[Candle] = None,
+        tl: Optional[Trendline] = None,
+        ema_20: Optional[float] = None,
+        atr_val: float = 1.0,
+        rel_vol: float = 1.0,
+        tl_broken: Optional[bool] = None,
+        ema_broken: Optional[bool] = None,
+        has_reversal: bool = True
     ) -> Tuple[int, Dict[str, int]]:
         """
-        Calculates dedicated W/M Pattern Quality Score (0 to 100 points).
+        Calculates dedicated W/M Pattern Quality Score (0 to 100 points maximum).
         
-        Rubric:
-        - Structure: 20 pts
-        - Depth: 15 pts
-        - Swing quality: 15 pts
-        - Separation: 10 pts
-        - Symmetry: 10 pts
-        - Neckline quality: 10 pts
-        - Trendline relevance: 10 pts
-        - 20 EMA confluence: 5 pts
-        - Breakout candle: 5 pts
+        Strict Standardized Rubric (Max 100/100):
+        - Reversal condition: 40 points (confirmed W/M structural reversal geometry)
+        - Trendline breakout condition: 30 points (breakout close confirms trendline break)
+        - EMA breakout condition: 30 points (breakout close confirms 20 EMA break)
+        Total = 40 + 30 + 30 = 100/100 max.
         """
-        breakdown: Dict[str, int] = {}
-        total = 0
+        reversal_pts = 40 if has_reversal else 0
 
-        # 1. Structure (20 pts)
-        if s1.index < neckline_swing.index < s2.index:
-            struct_pts = 20
-        else:
-            struct_pts = 5
-        breakdown["structure"] = struct_pts
-        total += struct_pts
-
-        # 2. Depth vs ATR (15 pts)
-        if pattern_type == "W":
-            depth = neckline_price - max(s1.price, s2.price)
-        else:
-            depth = min(s1.price, s2.price) - neckline_price
-
-        depth_atr = depth / max(0.0001, atr_val)
-        if depth_atr >= 1.50:
-            depth_pts = 15
-        elif depth_atr >= 1.0:
-            depth_pts = 11
-        elif depth_atr >= 0.70:
-            depth_pts = 7
-        else:
-            depth_pts = 3
-        breakdown["depth"] = depth_pts
-        total += depth_pts
-
-        # 3. Swing Quality (15 pts)
-        swing_strength = min(getattr(s1, "strength", 2.0), getattr(s2, "strength", 2.0))
-        if swing_strength >= 2.0:
-            sw_pts = 15
-        elif swing_strength >= 1.0:
-            sw_pts = 10
-        else:
-            sw_pts = 6
-        breakdown["swing_quality"] = sw_pts
-        total += sw_pts
-
-        # 4. Separation (10 pts)
-        bar_sep = s2.index - s1.index
-        if 8 <= bar_sep <= 40:
-            sep_pts = 10
-        elif 5 <= bar_sep <= 60:
-            sep_pts = 8
-        else:
-            sep_pts = 4
-        breakdown["separation"] = sep_pts
-        total += sep_pts
-
-        # 5. Symmetry / Similarity (10 pts)
-        swing_diff_atr = abs(s1.price - s2.price) / max(0.0001, atr_val)
-        if swing_diff_atr <= 0.40:
-            sym_pts = 10
-        elif swing_diff_atr <= 0.85:
-            sym_pts = 8
-        elif swing_diff_atr <= 1.40:
-            sym_pts = 6
-        else:
-            sym_pts = 3
-        breakdown["symmetry"] = sym_pts
-        total += sym_pts
-
-        # 6. Neckline Quality (10 pts)
-        if neckline_swing.confirmed:
-            neck_pts = 10
-        else:
-            neck_pts = 6
-        breakdown["neckline_quality"] = neck_pts
-        total += neck_pts
-
-        # 7. Trendline Relevance (10 pts)
-        if tl is not None:
-            if tl.rank == "PRIMARY" or tl.strength == "MAJOR":
-                tl_pts = 10
+        # Trendline breakout (30 pts)
+        if tl_broken is not None:
+            tl_pts = 30 if tl_broken else 0
+        elif tl is not None and breakout_candle is not None:
+            tl_p1_idx = getattr(tl, "p1_index", 0)
+            tl_p1_price = getattr(tl, "p1_price", 0.0)
+            tl_slope = getattr(tl, "slope", 0.0)
+            bc_idx = getattr(breakout_candle, "index", tl_p1_idx)
+            tl_price = tl_p1_price + tl_slope * max(0, bc_idx - tl_p1_idx)
+            tl_tolerance = max(tl_price * 0.0003, atr_val * 0.05)
+            if pattern_type == "W" and breakout_candle.close > (tl_price + tl_tolerance):
+                tl_pts = 30
+            elif pattern_type == "M" and breakout_candle.close < (tl_price - tl_tolerance):
+                tl_pts = 30
             else:
-                tl_pts = 7
+                tl_pts = 0
         else:
-            tl_pts = 5
-        breakdown["trendline_relevance"] = tl_pts
-        total += tl_pts
+            tl_pts = 0
 
-        # 8. 20 EMA Confluence (5 pts)
-        if ema_20 is not None:
-            ema_pts = 5
-        else:
-            ema_pts = 3
-        breakdown["ema_confluence"] = ema_pts
-        total += ema_pts
-
-        # 9. Breakout Candle & Volume (5 pts)
-        if breakout_candle is not None:
-            c_range = max(0.0001, breakout_candle.high - breakout_candle.low)
-            body_size = abs(breakout_candle.close - breakout_candle.open)
-            body_ratio = body_size / c_range
-            if pattern_type == "W" and breakout_candle.close >= breakout_candle.open and body_ratio >= 0.25:
-                candle_pts = 5
-            elif pattern_type == "M" and breakout_candle.close <= breakout_candle.open and body_ratio >= 0.25:
-                candle_pts = 5
+        # EMA breakout (30 pts)
+        if ema_broken is not None:
+            ema_pts = 30 if ema_broken else 0
+        elif ema_20 is not None and breakout_candle is not None:
+            if pattern_type == "W" and breakout_candle.close > ema_20:
+                ema_pts = 30
+            elif pattern_type == "M" and breakout_candle.close < ema_20:
+                ema_pts = 30
             else:
-                candle_pts = 3
+                ema_pts = 0
         else:
-            candle_pts = 3
-        breakdown["breakout_candle"] = candle_pts
-        total += candle_pts
+            ema_pts = 0
 
+        total = reversal_pts + tl_pts + ema_pts
+        breakdown = {
+            "reversal": reversal_pts,
+            "trendline": tl_pts,
+            "ema": ema_pts
+        }
         return min(100, total), breakdown
 
     @classmethod
@@ -753,10 +684,13 @@ class PrecisionBreakoutDetector:
                 breakout_tl: Optional[Trendline] = None
                 breakout_ema: Optional[float] = None
                 breakout_vol: float = 1.25
+                tl_broken: bool = False
+                ema_broken: bool = False
                 is_forming = False
                 is_invalidated = False
                 is_target_1_hit = False
                 is_target_2_hit = False
+                outcome_ts: Optional[str] = None
 
                 relevant_tls = [
                     t for t in trendlines
@@ -828,13 +762,16 @@ class PrecisionBreakoutDetector:
                         # 1. Target 2 reached (terminal winner)
                         if c.low <= target_analysis.target_2:
                             is_target_2_hit = True
+                            outcome_ts = c.timestamp
                             break
                         # 2. Target 1 reached
                         elif c.low <= target_analysis.measured_target:
                             is_target_1_hit = True
+                            outcome_ts = c.timestamp
                         # 3. Stop Loss breach (only if Target 1 not reached)
                         elif not is_target_1_hit and (c.high >= target_analysis.invalidation_level or c.close >= target_analysis.invalidation_level):
                             is_invalidated = True
+                            outcome_ts = c.timestamp
                             break
 
                 if already_moved_too_far:
@@ -863,11 +800,19 @@ class PrecisionBreakoutDetector:
                     tl=breakout_tl,
                     ema_20=breakout_ema,
                     atr_val=atr_val,
-                    rel_vol=breakout_vol
+                    rel_vol=breakout_vol,
+                    tl_broken=tl_broken,
+                    ema_broken=ema_broken
                 )
 
                 target_analysis.pattern_quality_score = q_score
                 target_analysis.quality_breakdown = q_breakdown
+                target_analysis.reversal_score = q_breakdown.get("reversal", 40)
+                target_analysis.trendline_score = q_breakdown.get("trendline", 0)
+                target_analysis.ema_score = q_breakdown.get("ema", 0)
+                target_analysis.reversal_points = q_breakdown.get("reversal", 40)
+                target_analysis.trendline_points = q_breakdown.get("trendline", 0)
+                target_analysis.ema_points = q_breakdown.get("ema", 0)
 
                 # Determine precise pattern lifecycle status
                 if is_target_2_hit:
@@ -895,6 +840,12 @@ class PrecisionBreakoutDetector:
                     s2_index=h2.index, s2_price=round(h2.price, 2), s2_time=h2.timestamp,
                     pattern_height=round(target_analysis.pattern_height, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
                     bar_separation=bar_sep, quality_score=q_score,
+                    reversal_score=q_breakdown.get("reversal", 40),
+                    trendline_score=q_breakdown.get("trendline", 0),
+                    ema_score=q_breakdown.get("ema", 0),
+                    reversal_points=q_breakdown.get("reversal", 40),
+                    trendline_points=q_breakdown.get("trendline", 0),
+                    ema_points=q_breakdown.get("ema", 0),
                     breakout_candle_index=structural_break_idx,
                     breakout_candle_time=structural_break_time,
                     breakout_close=round(structural_break_close, 2) if structural_break_close else None,
@@ -906,7 +857,8 @@ class PrecisionBreakoutDetector:
                     timeframe=timeframe,
                     target_1=round(target_analysis.measured_target, 2),
                     target_2=round(target_analysis.target_2, 2) if target_analysis.target_2 else None,
-                    stop_loss=round(target_analysis.invalidation_level, 2)
+                    stop_loss=round(target_analysis.invalidation_level, 2),
+                    outcome_timestamp=outcome_ts if (is_target_2_hit or is_target_1_hit or is_invalidated) else None
                 )
 
                 confirmed_patterns.append(m_pattern_obj)
@@ -1160,10 +1112,13 @@ class PrecisionBreakoutDetector:
                 breakout_tl = None
                 breakout_ema = None
                 breakout_vol = 1.25
+                tl_broken = False
+                ema_broken = False
                 is_forming = False
                 is_invalidated = False
                 is_target_1_hit = False
                 is_target_2_hit = False
+                outcome_ts: Optional[str] = None
 
                 relevant_tls = [
                     t for t in trendlines
@@ -1231,13 +1186,16 @@ class PrecisionBreakoutDetector:
                         # 1. Target 2 reached (terminal winner)
                         if c.high >= target_analysis.target_2:
                             is_target_2_hit = True
+                            outcome_ts = c.timestamp
                             break
                         # 2. Target 1 reached
                         elif c.high >= target_analysis.measured_target:
                             is_target_1_hit = True
+                            outcome_ts = c.timestamp
                         # 3. Stop Loss breach (only if Target 1 not reached)
                         elif not is_target_1_hit and (c.low <= target_analysis.invalidation_level or c.close <= target_analysis.invalidation_level):
                             is_invalidated = True
+                            outcome_ts = c.timestamp
                             break
 
                 if already_moved_too_far:
@@ -1265,11 +1223,19 @@ class PrecisionBreakoutDetector:
                     tl=breakout_tl,
                     ema_20=breakout_ema,
                     atr_val=atr_val,
-                    rel_vol=breakout_vol
+                    rel_vol=breakout_vol,
+                    tl_broken=tl_broken,
+                    ema_broken=ema_broken
                 )
 
                 target_analysis.pattern_quality_score = q_score
                 target_analysis.quality_breakdown = q_breakdown
+                target_analysis.reversal_score = q_breakdown.get("reversal", 40)
+                target_analysis.trendline_score = q_breakdown.get("trendline", 0)
+                target_analysis.ema_score = q_breakdown.get("ema", 0)
+                target_analysis.reversal_points = q_breakdown.get("reversal", 40)
+                target_analysis.trendline_points = q_breakdown.get("trendline", 0)
+                target_analysis.ema_points = q_breakdown.get("ema", 0)
 
                 if is_target_2_hit:
                     pat_status = "TARGET_2_HIT"
@@ -1296,6 +1262,12 @@ class PrecisionBreakoutDetector:
                     s2_index=l2.index, s2_price=round(l2.price, 2), s2_time=l2.timestamp,
                     pattern_height=round(target_analysis.pattern_height, 2), depth_atr=round(depth_atr, 2), symmetry_atr=round(diff_atr, 2),
                     bar_separation=bar_sep, quality_score=q_score,
+                    reversal_score=q_breakdown.get("reversal", 40),
+                    trendline_score=q_breakdown.get("trendline", 0),
+                    ema_score=q_breakdown.get("ema", 0),
+                    reversal_points=q_breakdown.get("reversal", 40),
+                    trendline_points=q_breakdown.get("trendline", 0),
+                    ema_points=q_breakdown.get("ema", 0),
                     breakout_candle_index=structural_break_idx,
                     breakout_candle_time=structural_break_time,
                     breakout_close=round(structural_break_close, 2) if structural_break_close else None,
@@ -1307,7 +1279,8 @@ class PrecisionBreakoutDetector:
                     timeframe=timeframe,
                     target_1=round(target_analysis.measured_target, 2),
                     target_2=round(target_analysis.target_2, 2) if target_analysis.target_2 else None,
-                    stop_loss=round(target_analysis.invalidation_level, 2)
+                    stop_loss=round(target_analysis.invalidation_level, 2),
+                    outcome_timestamp=outcome_ts if (is_target_2_hit or is_target_1_hit or is_invalidated) else None
                 )
 
                 confirmed_patterns.append(w_pattern_obj)

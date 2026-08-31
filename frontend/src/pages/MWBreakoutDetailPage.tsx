@@ -503,10 +503,18 @@ export const MWBreakoutDetailPage: React.FC = () => {
             )}
             <span>STATUS: {normStatus}</span>
           </div>
+          {alert.outcome_timestamp && (
+            <div className="text-[11px] font-mono text-slate-600 bg-white/70 px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-2xs">
+              Hit at: <span className="font-bold text-slate-800">{formatMarketDateTime(alert.outcome_timestamp, alert.symbol)}</span>
+            </div>
+          )}
 
-          <div className="text-right">
-            <span className="text-[11px] font-bold text-slate-500 uppercase block">Pattern Quality</span>
-            <span className="text-lg font-black text-slate-900 font-mono">{alert.quality_score}/100</span>
+          <div className="text-right flex flex-col items-end">
+            <span className="text-[11px] font-bold text-slate-500 uppercase block">Pattern Value</span>
+            <span className="text-lg font-black text-slate-900 font-mono">VALUE: {alert.quality_score}/100</span>
+            <span className="text-[11px] font-medium text-slate-500">
+              Reversal {alert.reversal_score ?? 40} • Trendline {alert.trendline_score ?? 0} • EMA {alert.ema_score ?? 0}
+            </span>
           </div>
         </div>
       </div>

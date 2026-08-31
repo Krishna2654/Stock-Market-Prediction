@@ -257,6 +257,12 @@ export interface PatternTargetAnalysis {
   pattern_status: string;
   pattern_quality_score: number;
   quality_breakdown?: Record<string, number>;
+  reversal_score?: number;
+  trendline_score?: number;
+  ema_score?: number;
+  reversal_points?: number;
+  trendline_points?: number;
+  ema_points?: number;
   interpretation: string;
 }
 
@@ -292,6 +298,12 @@ export interface WMPatternStructure {
   symmetry_atr: number;
   bar_separation: number;
   quality_score: number;
+  reversal_score?: number;
+  trendline_score?: number;
+  ema_score?: number;
+  reversal_points?: number;
+  trendline_points?: number;
+  ema_points?: number;
   breakout_candle_index?: number | null;
   breakout_candle_time?: string | null;
   breakout_close?: number | null;
@@ -305,6 +317,7 @@ export interface WMPatternStructure {
   target_1?: number | null;
   target_2?: number | null;
   stop_loss?: number | null;
+  outcome_timestamp?: string | null;
 }
 
 export interface HighConfluenceAlert {
@@ -394,9 +407,16 @@ export interface MWBreakoutAlert {
   stop_loss?: number | null;
   quality_score: number;
   quality_breakdown?: Record<string, number>;
+  reversal_score?: number;
+  trendline_score?: number;
+  ema_score?: number;
+  reversal_points?: number;
+  trendline_points?: number;
+  ema_points?: number;
 
   // Lifecycle & status tracking
   status: "TARGET OPEN" | "TARGET 1 HIT" | "TARGET 2 HIT" | "SL HIT" | "ACTIVE" | "TARGET_1_HIT" | "TARGET_2_HIT" | "INVALIDATED" | "EXPIRED";
+  outcome_timestamp?: string | null;
   event_created_at: string;
   read: boolean;
 }

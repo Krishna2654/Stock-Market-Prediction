@@ -119,6 +119,7 @@ class MWBreakoutAlertEngine:
 
                 if hit_t2:
                     alert.status = "TARGET 2 HIT"
+                    alert.outcome_timestamp = c.timestamp
                     return True
                 elif hit_t1 and hit_sl and alert.status not in ["TARGET 1 HIT", "TARGET_1_HIT"]:
                     # Intra-candle tie breaker:
@@ -126,16 +127,20 @@ class MWBreakoutAlertEngine:
                     # Bearish candle (open >= close): opened higher, made high first, then fell -> TARGET 1 HIT
                     if c.open < c.close:
                         alert.status = "SL HIT"
+                        alert.outcome_timestamp = c.timestamp
                         return True
                     else:
                         alert.status = "TARGET 1 HIT"
+                        alert.outcome_timestamp = c.timestamp
                         status_changed = True
                 elif hit_t1:
                     if alert.status not in ["TARGET 1 HIT", "TARGET_1_HIT"]:
                         alert.status = "TARGET 1 HIT"
+                        alert.outcome_timestamp = c.timestamp
                         status_changed = True
                 elif hit_sl and alert.status in ["TARGET OPEN", "ACTIVE"]:
                     alert.status = "SL HIT"
+                    alert.outcome_timestamp = c.timestamp
                     return True
 
             elif alert.pattern_type == "M":
@@ -145,22 +150,27 @@ class MWBreakoutAlertEngine:
 
                 if hit_t2:
                     alert.status = "TARGET 2 HIT"
+                    alert.outcome_timestamp = c.timestamp
                     return True
                 elif hit_t1 and hit_sl and alert.status not in ["TARGET 1 HIT", "TARGET_1_HIT"]:
                     # Bearish candle (open > close): opened higher, made high first -> SL HIT
                     # Bullish candle (open <= close): opened lower, made low first -> TARGET 1 HIT
                     if c.open > c.close:
                         alert.status = "SL HIT"
+                        alert.outcome_timestamp = c.timestamp
                         return True
                     else:
                         alert.status = "TARGET 1 HIT"
+                        alert.outcome_timestamp = c.timestamp
                         status_changed = True
                 elif hit_t1:
                     if alert.status not in ["TARGET 1 HIT", "TARGET_1_HIT"]:
                         alert.status = "TARGET 1 HIT"
+                        alert.outcome_timestamp = c.timestamp
                         status_changed = True
                 elif hit_sl and alert.status in ["TARGET OPEN", "ACTIVE"]:
                     alert.status = "SL HIT"
+                    alert.outcome_timestamp = c.timestamp
                     return True
 
         return status_changed
@@ -266,9 +276,17 @@ class MWBreakoutAlertEngine:
                 existing.nearest_resistance = round(nearest_res, 2) if nearest_res else None
                 existing.quality_score = pat.quality_score
                 existing.quality_breakdown = t_analysis.quality_breakdown if t_analysis else {}
+                existing.reversal_score = getattr(pat, "reversal_score", 40)
+                existing.trendline_score = getattr(pat, "trendline_score", 0)
+                existing.ema_score = getattr(pat, "ema_score", 0)
+                existing.reversal_points = getattr(pat, "reversal_points", 40)
+                existing.trendline_points = getattr(pat, "trendline_points", 0)
+                existing.ema_points = getattr(pat, "ema_points", 0)
+                if getattr(pat, "outcome_timestamp", None) and not existing.outcome_timestamp:
+                    existing.outcome_timestamp = pat.outcome_timestamp
 
-                # Replay lifecycle only if timeframe matches
-                if existing.timeframe == timeframe:
+                # Replay lifecycle only if timeframe matches and alert is not already terminal
+                if existing.timeframe == timeframe and existing.status not in ["TARGET 2 HIT", "SL HIT"]:
                     self.replay_alert_lifecycle(existing, candles)
 
                 if active_pattern and pat.pattern_id == active_pattern.pattern_id:
@@ -308,7 +326,14 @@ class MWBreakoutAlertEngine:
                     invalidation_level=round(inval_level, 2),
                     quality_score=pat.quality_score,
                     quality_breakdown=t_analysis.quality_breakdown if t_analysis else {},
+                    reversal_score=getattr(pat, "reversal_score", 40),
+                    trendline_score=getattr(pat, "trendline_score", 0),
+                    ema_score=getattr(pat, "ema_score", 0),
+                    reversal_points=getattr(pat, "reversal_points", 40),
+                    trendline_points=getattr(pat, "trendline_points", 0),
+                    ema_points=getattr(pat, "ema_points", 0),
                     status="TARGET OPEN",
+                    outcome_timestamp=getattr(pat, "outcome_timestamp", None),
                     event_created_at=now_str,
                     read=False
                 )
@@ -485,12 +510,19 @@ class MWBreakoutAlertEngine:
                         invalidation_level=round(inval_level, 2),
                         quality_score=pat.quality_score,
                         quality_breakdown=t_analysis.quality_breakdown if t_analysis else {},
+                        reversal_score=getattr(pat, "reversal_score", 40),
+                        trendline_score=getattr(pat, "trendline_score", 0),
+                        ema_score=getattr(pat, "ema_score", 0),
+                        reversal_points=getattr(pat, "reversal_points", 40),
+                        trendline_points=getattr(pat, "trendline_points", 0),
+                        ema_points=getattr(pat, "ema_points", 0),
                         status=(
                             "TARGET 2 HIT" if pat.status in ["TARGET_2_HIT", "TARGET 2 HIT"] else
                             "TARGET 1 HIT" if pat.status in ["TARGET_1_HIT", "TARGET 1 HIT"] else
                             "SL HIT" if pat.status in ["SL_HIT", "SL HIT", "INVALIDATED"] else
                             "TARGET OPEN"
                         ),
+                        outcome_timestamp=getattr(pat, "outcome_timestamp", None),
                         event_created_at=now_str,
                         read=False
                     )
@@ -555,36 +587,50 @@ class MWBreakoutAlertEngine:
             t1_val = alert.measured_target
             sl_val = alert.invalidation_level
 
-            # 2. Evaluate against current live price if not yet terminal
-            if alert.status not in ["TARGET 2 HIT", "SL HIT"]:
+            # 2. Evaluate against current live price ONLY for active/open alerts:
+            # - If candles_dict is provided with candles, verify the breakout candle is within the candle window (prevents old alerts from being touched by today's price).
+            # - If candles_dict is not provided (e.g. direct synthesis or unit test), only evaluate if the alert was created recently (same session / not an old historical alert with a past breakout).
+            is_historical = bool(
+                candles_dict and alert.timeframe in candles_dict and candles_dict[alert.timeframe] and
+                not any(c.timestamp == alert.breakout_candle_timestamp for c in candles_dict[alert.timeframe])
+            )
+
+            if not is_historical and alert.status not in ["TARGET 2 HIT", "SL HIT"]:
+                latest_ts = candles_dict[alert.timeframe][-1].timestamp if (candles_dict and alert.timeframe in candles_dict and candles_dict[alert.timeframe]) else datetime.now(timezone.utc).isoformat()
                 if alert.pattern_type == "W":
                     # Priority 1: Target 2 reached (direct jump or subsequent)
                     if current_price >= t2_val:
                         alert.status = "TARGET 2 HIT"
+                        alert.outcome_timestamp = latest_ts
                         status_changed = True
                     # Priority 2: Target 1 reached
                     elif current_price >= t1_val:
                         if alert.status not in ["TARGET 1 HIT", "TARGET_1_HIT"]:
                             alert.status = "TARGET 1 HIT"
+                            alert.outcome_timestamp = latest_ts
                             status_changed = True
                     # Priority 3: Invalidation / SL reached (ONLY if Target 1 was not yet reached)
                     elif alert.status in ["TARGET OPEN", "ACTIVE"] and current_price <= sl_val:
                         alert.status = "SL HIT"
+                        alert.outcome_timestamp = latest_ts
                         status_changed = True
 
                 elif alert.pattern_type == "M":
                     # Priority 1: Target 2 reached (direct jump or subsequent)
                     if current_price <= t2_val:
                         alert.status = "TARGET 2 HIT"
+                        alert.outcome_timestamp = latest_ts
                         status_changed = True
                     # Priority 2: Target 1 reached
                     elif current_price <= t1_val:
                         if alert.status not in ["TARGET 1 HIT", "TARGET_1_HIT"]:
                             alert.status = "TARGET 1 HIT"
+                            alert.outcome_timestamp = latest_ts
                             status_changed = True
                     # Priority 3: Invalidation / SL reached (ONLY if Target 1 was not yet reached)
                     elif alert.status in ["TARGET OPEN", "ACTIVE"] and current_price >= sl_val:
                         alert.status = "SL HIT"
+                        alert.outcome_timestamp = latest_ts
                         status_changed = True
 
             if status_changed:
@@ -695,7 +741,6 @@ class MWBreakoutAlertEngine:
         target_hit_count = sum(1 for a in self.alerts if a.status in ["TARGET 1 HIT", "TARGET 2 HIT", "TARGET_1_HIT", "TARGET_2_HIT"])
         invalidated_count = sum(1 for a in self.alerts if a.status in ["SL HIT", "INVALIDATED"])
         unread_count = sum(1 for a in self.alerts if not a.read)
-
         return {
             "w_breakouts": w_count,
             "m_breakdowns": m_count,
@@ -705,5 +750,82 @@ class MWBreakoutAlertEngine:
             "unread_count": unread_count,
             "total_count": len(self.alerts)
         }
+
+    async def repair_stored_alerts(self, provider) -> Dict[str, Any]:
+        """
+        Historical Alert Store Repair:
+        Iterates over all stored alerts, fetches comprehensive historical candles for the exact symbol and timeframe,
+        replays chronological trade lifecycle strictly after the breakout timestamp,
+        updates statuses, assigns exact outcome_timestamp, and saves the corrected store.
+        """
+        stats = {
+            "total_alerts": len(self.alerts),
+            "repaired_count": 0,
+            "unchanged_count": 0,
+            "errors": 0,
+            "status_distribution_before": {},
+            "status_distribution_after": {}
+        }
+        for a in self.alerts:
+            stats["status_distribution_before"][a.status] = stats["status_distribution_before"].get(a.status, 0) + 1
+
+        # Cache fetched candles per (ticker, timeframe)
+        candle_cache: Dict[Tuple[str, str], List[Candle]] = {}
+
+        ticker_map = {
+            "NIFTY 50": "^NSEI",
+            "BANK NIFTY": "^NSEBANK",
+            "RELIANCE": "RELIANCE.NS",
+            "HDFCBANK": "HDFCBANK.NS",
+            "ICICIBANK": "ICICIBANK.NS",
+            "TCS": "TCS.NS",
+            "INFY": "INFY.NS",
+            "SBIN": "SBIN.NS",
+            "BHARTI AIRTEL": "BHARTIARTL.NS",
+            "BTC/USD": "BTC-USD",
+            "BTC-USD": "BTC-USD"
+        }
+
+        for alert in self.alerts:
+            ticker = alert.ticker or ticker_map.get(alert.symbol, alert.symbol)
+            cache_key = (ticker, alert.timeframe)
+
+            if cache_key not in candle_cache:
+                try:
+                    candles = await provider.fetch_candles(alert.symbol, ticker, alert.timeframe, limit=2000)
+                    candle_cache[cache_key] = candles
+                except Exception as e:
+                    stats["errors"] += 1
+                    continue
+
+            candles = candle_cache.get(cache_key, [])
+            if not candles:
+                stats["errors"] += 1
+                continue
+
+            old_status = alert.status
+            old_ts = alert.outcome_timestamp
+
+            # Reset temporary or unverified statuses to re-evaluate from clean baseline
+            if alert.status in ["TARGET OPEN", "ACTIVE", "FALSE BREAKOUT", "FALSE_BREAKOUT"]:
+                alert.status = "TARGET OPEN"
+                alert.outcome_timestamp = None
+            elif alert.status == "SL HIT" and not alert.outcome_timestamp:
+                # If it was marked SL HIT without an outcome timestamp (likely caused by old current_price bug), reset and replay
+                alert.status = "TARGET OPEN"
+                alert.outcome_timestamp = None
+
+            self.replay_alert_lifecycle(alert, candles)
+
+            if alert.status != old_status or alert.outcome_timestamp != old_ts:
+                stats["repaired_count"] += 1
+            else:
+                stats["unchanged_count"] += 1
+
+        for a in self.alerts:
+            stats["status_distribution_after"][a.status] = stats["status_distribution_after"].get(a.status, 0) + 1
+
+        self._save_to_storage()
+        return stats
 
 mw_breakout_engine = MWBreakoutAlertEngine()
