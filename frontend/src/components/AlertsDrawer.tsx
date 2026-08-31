@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AlertNotification, AlertRule } from '../types';
 import { api } from '../services/api';
-import { formatMarketTime } from '../utils/time';
+import { formatMarketTime, formatMarketDateTime } from '../utils/time';
 import {
   Bell,
   Volume2,
@@ -223,7 +223,7 @@ export const AlertsDrawer: React.FC<AlertsDrawerProps> = ({
                           {n.symbol}
                         </span>
                         <span className="text-[10px] font-mono text-slate-500">
-                          {formatMarketTime(n.timestamp, n.symbol)}
+                          {formatMarketDateTime(n.timestamp, n.symbol)}
                         </span>
                       </div>
                       <p className="text-slate-800 text-[11px] font-semibold leading-relaxed mt-0.5">

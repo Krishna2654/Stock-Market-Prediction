@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BacktestRequest, BacktestResult, InstrumentConfig } from '../types';
 import { api } from '../services/api';
+import { formatMarketDateTime } from '../utils/time';
 import {
   Play,
   TrendingUp,
@@ -280,7 +281,7 @@ export const BacktestModal: React.FC<BacktestModalProps> = ({
                     <tr key={t.trade_id} className="hover:bg-slate-900/40">
                       <td className="py-2 px-3 text-slate-500 font-mono">{t.trade_id}</td>
                       <td className="py-2 px-3 text-slate-300 font-mono text-[11px]">
-                        {new Date(t.entry_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {formatMarketDateTime(t.entry_time, selectedSymbol)}
                       </td>
                       <td className="py-2 px-3 font-bold">
                         <span className={`px-2 py-0.5 rounded text-[10px] ${

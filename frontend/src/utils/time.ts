@@ -1,14 +1,12 @@
 /**
  * Centralized Timezone and Timestamp Utility for AI Market Analyzer.
  *
- * Guarantees that all Indian exchange instruments (NSE, BSE) are formatted
- * strictly in Asia/Kolkata (IST, UTC+05:30) regardless of the client machine's local timezone.
- *
- * Cryptocurrency / 24/7 global instruments use UTC.
+ * Guarantees that ALL instruments (including Indian exchange NSE/BSE and cryptocurrency BTC/USD)
+ * are formatted strictly in Asia/Kolkata (IST, UTC+05:30) for all user-facing displays.
  */
 
 export const MARKET_TIMEZONE = 'Asia/Kolkata';
-export const UTC_TIMEZONE = 'UTC';
+export const UTC_TIMEZONE = 'Asia/Kolkata';
 
 export function isCryptoInstrument(symbolOrTicker?: string): boolean {
   if (!symbolOrTicker) return false;
@@ -16,8 +14,9 @@ export function isCryptoInstrument(symbolOrTicker?: string): boolean {
   return s.includes('BTC') || s.includes('ETH') || s.includes('USD') || s.includes('CRYPTO');
 }
 
-export function getInstrumentTimezone(symbolOrTicker?: string): string {
-  return isCryptoInstrument(symbolOrTicker) ? UTC_TIMEZONE : MARKET_TIMEZONE;
+export function getInstrumentTimezone(_symbolOrTicker?: string): string {
+  // All user-facing instruments must display in Indian Standard Time (Asia/Kolkata)
+  return MARKET_TIMEZONE;
 }
 
 /**
@@ -40,8 +39,8 @@ export function parseTimestamp(ts: string | number | Date | null | undefined): D
 }
 
 /**
- * Formats time as 'HH:mm IST' (or 'HH:mm UTC' / 'HH:mm').
- * Example: '09:15 IST'
+ * Formats time as 'HH:mm IST' (or 'HH:mm').
+ * Example: '09:15 IST' or '12:30 IST'
  */
 export function formatMarketTime(
   ts: string | number | Date | null | undefined,
@@ -52,7 +51,7 @@ export function formatMarketTime(
   if (!d) return '—';
 
   const tz = getInstrumentTimezone(symbolOrTicker);
-  const suffix = tz === MARKET_TIMEZONE ? ' IST' : (tz === UTC_TIMEZONE ? ' UTC' : '');
+  const suffix = ' IST';
 
   try {
     const formatter = new Intl.DateTimeFormat('en-IN', {
@@ -69,7 +68,7 @@ export function formatMarketTime(
 }
 
 /**
- * Formats intraday candle time as 'HH:mm' in the market timezone.
+ * Formats intraday candle time as 'HH:mm' in Asia/Kolkata (IST).
  * Example: '09:15'
  */
 export function formatCandleTime(
@@ -80,8 +79,8 @@ export function formatCandleTime(
 }
 
 /**
- * Formats candle date as 'DD MMM YYYY' in the market timezone.
- * Example: '25 Aug 2026'
+ * Formats candle date as 'DD MMM YYYY' in Asia/Kolkata (IST).
+ * Example: '31 Aug 2026'
  */
 export function formatCandleDate(
   ts: string | number | Date | null | undefined,
@@ -92,7 +91,7 @@ export function formatCandleDate(
 
   const tz = getInstrumentTimezone(symbolOrTicker);
   try {
-    const formatter = new Intl.DateTimeFormat('en-IN', {
+    const formatter = new Intl.DateTimeFormat('en-GB', {
       timeZone: tz,
       day: '2-digit',
       month: 'short',
@@ -105,8 +104,8 @@ export function formatCandleDate(
 }
 
 /**
- * Formats full datetime as 'DD MMM YYYY, HH:mm IST'
- * Example: '25 Aug 2026, 09:15 IST'
+ * Formats full datetime as 'DD MMM YYYY, hh:mm A IST' in Asia/Kolkata.
+ * Example: '31 Aug 2026, 12:30 PM IST'
  */
 export function formatMarketDateTime(
   ts: string | number | Date | null | undefined,
@@ -117,20 +116,20 @@ export function formatMarketDateTime(
   if (!d) return '—';
 
   const tz = getInstrumentTimezone(symbolOrTicker);
-  const suffix = tz === MARKET_TIMEZONE ? ' IST' : (tz === UTC_TIMEZONE ? ' UTC' : '');
+  const suffix = ' IST';
 
   try {
-    const dateFormatter = new Intl.DateTimeFormat('en-IN', {
+    const dateFormatter = new Intl.DateTimeFormat('en-GB', {
       timeZone: tz,
       day: '2-digit',
       month: 'short',
       year: 'numeric'
     });
-    const timeFormatter = new Intl.DateTimeFormat('en-IN', {
+    const timeFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       hour: '2-digit',
       minute: '2-digit',
-      hour12: false
+      hour12: true
     });
     const datePart = dateFormatter.format(d);
     const timePart = timeFormatter.format(d);
@@ -141,7 +140,7 @@ export function formatMarketDateTime(
 }
 
 /**
- * Formats clock/last updated time as 'HH:mm:ss IST'
+ * Formats clock/last updated time as 'HH:mm:ss IST' in Asia/Kolkata.
  * Example: '10:43:27 IST'
  */
 export function formatMarketTimeWithSeconds(
@@ -152,7 +151,7 @@ export function formatMarketTimeWithSeconds(
   if (!d) return '—';
 
   const tz = getInstrumentTimezone(symbolOrTicker);
-  const suffix = tz === MARKET_TIMEZONE ? ' IST' : (tz === UTC_TIMEZONE ? ' UTC' : '');
+  const suffix = ' IST';
 
   try {
     const formatter = new Intl.DateTimeFormat('en-IN', {
@@ -167,3 +166,4 @@ export function formatMarketTimeWithSeconds(
     return d.toLocaleTimeString();
   }
 }
+
