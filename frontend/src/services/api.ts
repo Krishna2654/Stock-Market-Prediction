@@ -193,6 +193,14 @@ export const api = {
     return res.json();
   },
 
+  refreshMWBreakouts: async (): Promise<{ message: string; result?: any; stats: MWBreakoutStats }> => {
+    const res = await fetch(`${API_BASE}/alerts/mw-breakouts/refresh`, {
+      method: 'POST'
+    });
+    if (!res.ok) throw new Error('Failed to refresh M/W breakouts');
+    return res.json();
+  },
+
   getMWBreakoutDetail: async (alertId: string): Promise<MWBreakoutAlert> => {
     const res = await fetch(`${API_BASE}/alerts/mw-breakouts/${encodeURIComponent(alertId)}`);
     if (!res.ok) throw new Error('Failed to fetch M/W breakout detail');

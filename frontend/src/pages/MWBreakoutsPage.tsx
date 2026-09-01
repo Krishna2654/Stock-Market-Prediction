@@ -191,9 +191,16 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
           </button>
 
           <button
-            onClick={() => {
+            onClick={async () => {
+              setIsLoading(true);
+              try {
+                await api.refreshMWBreakouts();
+              } catch (err) {
+                console.warn('Live rescan warning:', err);
+              }
               onRefresh();
-              loadStats();
+              await loadStats();
+              setIsLoading(false);
             }}
             disabled={isLoading}
             className="min-h-[36px] sm:min-h-[44px] px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"

@@ -10,6 +10,7 @@ from app.alerts.mw_breakout_engine import mw_breakout_engine
 from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
 from app.market_structure.precision_breakouts import PrecisionBreakoutDetector
 from app.api.websocket import ws_manager
+from app.api.deps import get_current_provider, configured_instruments
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -273,6 +274,21 @@ async def get_mw_breakout_candidates(
 @router.get("/mw-breakouts/stats")
 def get_mw_breakout_stats():
     return mw_breakout_engine.get_summary_stats()
+
+@router.post("/mw-breakouts/refresh")
+async def refresh_mw_breakouts():
+    """
+    Triggers a live multi-timeframe precision scan across all configured active instruments,
+    updates mw_breakout_engine with newly confirmed precision W/M alerts,
+    and returns the latest summary statistics and alerts.
+    """
+    provider = get_current_provider()
+    result = await mw_breakout_engine.rescan_all_instruments(provider, configured_instruments)
+    return {
+        "message": "M/W breakout alerts refreshed successfully",
+        "result": result,
+        "stats": mw_breakout_engine.get_summary_stats()
+    }
 
 @router.get("/mw-breakouts/{alert_id:path}", response_model=MWBreakoutAlert)
 def get_mw_breakout_detail(alert_id: str):

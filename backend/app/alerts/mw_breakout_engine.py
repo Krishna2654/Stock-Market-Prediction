@@ -350,6 +350,8 @@ class MWBreakoutAlertEngine:
             self.alerts.remove(target_active_alert)
             self.alerts.insert(0, target_active_alert)
 
+        # Sort newest first across all instruments and cap to 200
+        self.alerts.sort(key=lambda a: a.breakout_candle_timestamp or "", reverse=True)
         if len(self.alerts) > 200:
             self.alerts = self.alerts[:200]
 
@@ -533,11 +535,12 @@ class MWBreakoutAlertEngine:
                     print(f"[MWAlertEngine] Error processing pattern for {synthesis.symbol} ({tf_name}): {pat_err}")
                     continue
 
-        # Cap memory storage
+        # Sort newest first across all instruments and cap to 200
+        self.alerts.sort(key=lambda a: a.breakout_candle_timestamp or "", reverse=True)
         if len(self.alerts) > 200:
             self.alerts = self.alerts[:200]
 
-        if new_alerts:
+        if new_alerts or updated_alerts:
             self._save_to_storage()
 
         return new_alerts, updated_alerts
@@ -827,5 +830,50 @@ class MWBreakoutAlertEngine:
 
         self._save_to_storage()
         return stats
+
+    async def rescan_all_instruments(self, provider, instruments_list) -> Dict[str, Any]:
+        """
+        Runs a full multi-timeframe precision scan across all active instruments using
+        the latest PrecisionBreakoutDetector (via SingleTimeframeAnalyzer / MultiTimeframeAnalyzer).
+        Synchronizes all confirmed W/M breakouts into self.alerts, updates trade lifecycles,
+        sorts by breakout_candle_timestamp descending, and saves to storage.
+        """
+        from app.multi_timeframe.synthesis import MultiTimeframeAnalyzer
+
+        synced_count = 0
+        errors = 0
+        for inst in instruments_list:
+            if not getattr(inst, "is_active", True):
+                continue
+            try:
+                mtf_candles = await provider.get_multi_timeframe_data(
+                    inst.symbol, inst.ticker, ["4H", "1H", "15M", "5M"], limit=250
+                )
+                synthesis = MultiTimeframeAnalyzer.synthesize(
+                    symbol=inst.symbol,
+                    ticker=inst.ticker,
+                    provider_name=provider.provider_name,
+                    mtf_candles=mtf_candles,
+                    is_stale=False,
+                    status_message="Live Market Data",
+                    data_status="LIVE"
+                )
+                new_a, upd_a = self.process_synthesis_with_updates(synthesis, mtf_candles=mtf_candles)
+                synced_count += len(new_a)
+            except Exception as e:
+                print(f"[MWAlertEngine] Error syncing {inst.symbol}: {e}")
+                errors += 1
+
+        self.alerts.sort(key=lambda a: a.breakout_candle_timestamp or "", reverse=True)
+        if len(self.alerts) > 200:
+            self.alerts = self.alerts[:200]
+
+        self._save_to_storage()
+        return {
+            "total_alerts": len(self.alerts),
+            "new_alerts_found": synced_count,
+            "errors": errors,
+            "stats": self.get_summary_stats()
+        }
 
 mw_breakout_engine = MWBreakoutAlertEngine()

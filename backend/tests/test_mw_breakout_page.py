@@ -2157,6 +2157,24 @@ def test_audit_22_target2_hit_and_sl_hit_are_terminal_and_immutable():
     assert alert_winner.status == "TARGET 2 HIT"
     assert alert_winner.outcome_timestamp == "2026-08-28T13:15:00+05:30"
 
+def test_refresh_mw_breakouts_endpoint():
+    """Verify that POST /api/alerts/mw-breakouts/refresh triggers a precision rescan and returns stats."""
+    from fastapi.testclient import TestClient
+    from unittest.mock import AsyncMock, patch
+    from app.main import app
+    client = TestClient(app)
+    with patch("app.alerts.mw_breakout_engine.mw_breakout_engine.rescan_all_instruments", new_callable=AsyncMock) as mock_rescan:
+        mock_rescan.return_value = {"total_alerts": 200, "new_alerts_found": 5, "errors": 0}
+        response = client.post("/api/alerts/mw-breakouts/refresh")
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
+        assert "stats" in data
+        assert "w_breakouts" in data["stats"]
+        assert "m_breakdowns" in data["stats"]
+        assert mock_rescan.called
+
+
 
 
 

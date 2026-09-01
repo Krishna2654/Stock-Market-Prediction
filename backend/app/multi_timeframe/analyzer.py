@@ -31,8 +31,8 @@ class SingleTimeframeAnalyzer:
         candles: List[Candle],
         symbol: str,
         timeframe: str,
-        swing_length: int = 5,
-        confirmation_candles: int = 2
+        swing_length: Optional[int] = None,
+        confirmation_candles: Optional[int] = None
     ) -> SingleTimeframeAnalysis:
         if not candles:
             return SingleTimeframeAnalysis(
@@ -47,6 +47,10 @@ class SingleTimeframeAnalyzer:
                 latest_candle_time=""
             )
 
+        tf_clean = (timeframe or "1H").upper()
+        eff_swing_length = swing_length if swing_length is not None else (3 if tf_clean in ["5M", "1M", "3M"] else 5)
+        eff_conf_candles = confirmation_candles if confirmation_candles is not None else 2
+
         # 1. Compute Technical Indicators
         df_indicators, indicators = TechnicalIndicatorEngine.compute_all_indicators(
             candles,
@@ -60,8 +64,8 @@ class SingleTimeframeAnalyzer:
         # 2. Detect Fractal Swings & Protected Swings
         swings, protected_swing = SwingDetector.detect_swings(
             candles,
-            swing_length=swing_length,
-            confirmation_candles=confirmation_candles
+            swing_length=eff_swing_length,
+            confirmation_candles=eff_conf_candles
         )
 
         # 3. Detect BOS and CHoCH Events

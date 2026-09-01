@@ -789,4 +789,211 @@ def test_insufficient_depth_rejected():
     depth_atr = (neckline - l1) / atr  # 1.0 / 2.0 = 0.5 < 1.0
     assert depth_atr < 1.0
 
+# ============================================================================
+# APPROVED SPECIFICATION REGRESSION TESTS (A - H)
+# ============================================================================
+
+def test_regression_a_bharti_twin_neckline_clustering():
+    """A. BHARTIARTL twin neckline lows clustered into single reaction-zone neckline (Pattern 3 M)."""
+    atr = 2.0
+    # H1 at index 5 (1900), twin reaction lows at index 9 (1880.0) & index 11 (1880.2), H2 at index 16 (1899.0)
+    swings = [
+        SwingPoint(index=1, price=1860.0, timestamp="2026-08-25T10:05:00Z", is_high=False, type="LL", strength=2.0, confirmed=True),
+        SwingPoint(index=5, price=1900.0, timestamp="2026-08-25T10:25:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=9, price=1880.0, timestamp="2026-08-25T10:45:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=11, price=1880.2, timestamp="2026-08-25T10:55:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=16, price=1899.0, timestamp="2026-08-25T11:20:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)
+    ]
+    candles = [
+        Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=1885, high=1890, low=1880, close=1885, volume=1000)
+        for i in range(25)
+    ]
+    candles[18] = Candle(timestamp="2026-08-25T11:30:00Z", open=1882, high=1883, low=1877, close=1878, volume=2500)
+    
+    events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles, swings=swings, trendlines=[], df_indicators=None,
+        symbol="BHARTIARTL", timeframe="5M", atr_val=atr
+    )
+    assert len(confirmed) >= 1, "Twin neckline lows should be clustered into single valid M pattern"
+    assert confirmed[0].pattern_type == "M"
+    assert confirmed[0].neckline_price == 1880.0
+
+def test_regression_b_infy_reaction_zone_consolidation():
+    """B. INFY intermediate reaction-zone consolidation handled correctly (Pattern 3 M)."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=1, price=1120.0, timestamp="2026-08-25T10:05:00Z", is_high=False, type="LL", strength=2.0, confirmed=True),
+        SwingPoint(index=5, price=1155.0, timestamp="2026-08-25T10:25:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=9, price=1140.0, timestamp="2026-08-25T10:45:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=12, price=1140.2, timestamp="2026-08-25T11:00:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=16, price=1154.0, timestamp="2026-08-25T11:20:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)
+    ]
+    candles = [
+        Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=1145, high=1150, low=1138, close=1145, volume=1000)
+        for i in range(25)
+    ]
+    candles[18] = Candle(timestamp="2026-08-25T11:30:00Z", open=1142, high=1143, low=1136, close=1137, volume=2500)
+    
+    events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles, swings=swings, trendlines=[], df_indicators=None,
+        symbol="INFY", timeframe="5M", atr_val=atr
+    )
+    assert len(confirmed) >= 1, "Reaction zone consolidation should yield valid M pattern"
+    assert confirmed[0].pattern_type == "M"
+
+def test_regression_c_nifty_fast_5m_w_reversal():
+    """C. NIFTY 50 Fast 5M W reversal confirmed on completed candle close above neckline with zero lookahead."""
+    atr = 15.0
+    candles = [
+        Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=24050, high=24060, low=24040, close=24050, volume=1000)
+        for i in range(20)
+    ]
+    # L1 at index 4 (24010), Neckline candle at index 7 (high 24065), L2 candle at index 9 (low 24015), Breakout at index 11 (close 24070)
+    candles[4] = Candle(timestamp="2026-08-25T10:20:00Z", open=24030, high=24035, low=24010, close=24015, volume=1000)
+    candles[7] = Candle(timestamp="2026-08-25T10:35:00Z", open=24045, high=24065, low=24040, close=24060, volume=1000)
+    candles[9] = Candle(timestamp="2026-08-25T10:45:00Z", open=24040, high=24045, low=24015, close=24020, volume=1000)
+    candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=24055, high=24075, low=24050, close=24070, volume=3000)
+    
+    l1 = SwingPoint(index=4, price=24010.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
+    prior_h = SwingPoint(index=1, price=24100.0, timestamp="2026-08-25T10:05:00Z", is_high=True, type="HH", strength=2.0, confirmed=True)
+    
+    events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles, swings=[prior_h, l1], trendlines=[], df_indicators=None,
+        symbol="NIFTY 50", timeframe="5M", atr_val=atr
+    )
+    assert len(confirmed) >= 1, "Fast 5M W reversal should confirm on completed candle close"
+    w_fast = confirmed[0]
+    assert w_fast.pattern_type == "W"
+    assert w_fast.breakout_close == 24070.0
+    assert w_fast.breakout_candle_index == 11
+    assert w_fast.breakout_candle_time == "2026-08-25T10:55:00Z"
+
+def test_regression_d_hdfcbank_fast_5m_w_reversal():
+    """D. HDFCBANK Fast 5M W reversal confirmed on completed candle close."""
+    atr = 2.0
+    candles = [
+        Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=700, high=702, low=698, close=700, volume=1000)
+        for i in range(20)
+    ]
+    candles[4] = Candle(timestamp="2026-08-25T10:20:00Z", open=699, high=700, low=695, close=696, volume=1000)
+    candles[7] = Candle(timestamp="2026-08-25T10:35:00Z", open=698, high=702, low=697, close=701, volume=1000)
+    candles[9] = Candle(timestamp="2026-08-25T10:45:00Z", open=699, high=700, low=696, close=697, volume=1000)
+    candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=700, high=704, low=699, close=703, volume=3000)
+    
+    l1 = SwingPoint(index=4, price=695.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
+    prior_h = SwingPoint(index=1, price=710.0, timestamp="2026-08-25T10:05:00Z", is_high=True, type="HH", strength=2.0, confirmed=True)
+    
+    events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles, swings=[prior_h, l1], trendlines=[], df_indicators=None,
+        symbol="HDFCBANK", timeframe="5M", atr_val=atr
+    )
+    assert len(confirmed) >= 1
+    assert confirmed[0].pattern_type == "W"
+    assert confirmed[0].breakout_close == 703.0
+
+def test_regression_e_macro_multi_wave_rejection():
+    """E. Genuine multi-wave structure (deep intervening wave >= 0.65 * H_pat) is rejected."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=1, price=100.0, timestamp="2026-08-25T10:05:00Z", is_high=False, type="LL", strength=2.0, confirmed=True),
+        SwingPoint(index=4, price=130.0, timestamp="2026-08-25T10:20:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),  # H1
+        SwingPoint(index=8, price=110.0, timestamp="2026-08-25T10:40:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),  # Mid trough
+        SwingPoint(index=12, price=128.0, timestamp="2026-08-25T11:00:00Z", is_high=True, type="HH", strength=2.0, confirmed=True), # Deep inter high (18/20 = 90% > 65%)
+        SwingPoint(index=16, price=112.0, timestamp="2026-08-25T11:20:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=20, price=129.0, timestamp="2026-08-25T11:40:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)  # H2
+    ]
+    candles = [
+        Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=120, high=125, low=115, close=120, volume=1000)
+        for i in range(25)
+    ]
+    events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles, swings=swings, trendlines=[], df_indicators=None,
+        symbol="TEST", timeframe="15M", atr_val=atr
+    )
+    assert len(confirmed) == 0, "Multi-wave structure with independent wave must be rejected"
+    multi_wave_rejs = [c for c in debug_cands if "multi-wave" in (c.rejection_reason or "")]
+    assert len(multi_wave_rejs) >= 1
+
+def test_regression_f_continuation_protection_hard_reject():
+    """F. Pattern 2 W & Pattern 4 M continuations are strictly hard-rejected."""
+    atr = 2.0
+    candles = [
+        Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=100 + i*2, high=102 + i*2, low=98 + i*2, close=101 + i*2, volume=1000)
+        for i in range(30)
+    ]
+    swings = [
+        SwingPoint(index=2, price=100.0, timestamp="2026-08-25T10:10:00Z", is_high=False, type="LL", strength=2.0, confirmed=True),
+        SwingPoint(index=5, price=120.0, timestamp="2026-08-25T10:25:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=8, price=115.0, timestamp="2026-08-25T10:40:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=12, price=135.0, timestamp="2026-08-25T11:00:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=15, price=128.0, timestamp="2026-08-25T11:15:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=18, price=150.0, timestamp="2026-08-25T11:30:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        # Pullback W continuation
+        SwingPoint(index=20, price=130.0, timestamp="2026-08-25T11:40:00Z", is_high=False, type="HL", strength=2.0, confirmed=True),
+        SwingPoint(index=23, price=138.0, timestamp="2026-08-25T11:55:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=27, price=131.0, timestamp="2026-08-25T12:15:00Z", is_high=False, type="HL", strength=2.0, confirmed=True)
+    ]
+    events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles, swings=swings, trendlines=[], df_indicators=None,
+        symbol="RELIANCE", timeframe="15M", atr_val=atr
+    )
+    assert len(confirmed) == 0, "Pattern 2 W continuation must NEVER generate confirmed alerts"
+    rejs = [c for c in debug_cands if c.s1_index == 20]
+    assert len(rejs) >= 1
+    assert "BULLISH_CONTINUATION_NOT_REVERSAL" in rejs[0].rejection_reason or "bullish" in rejs[0].rejection_reason.lower()
+
+def test_regression_g_session_boundary_protection():
+    """G. Inter-day synthetic pattern pairs are rejected on intraday timeframes."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=5, price=100.0, timestamp="2026-08-24T14:30:00Z", is_high=False, type="LL", strength=2.0, confirmed=True),
+        SwingPoint(index=10, price=110.0, timestamp="2026-08-24T15:00:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        # L2 on the next trading day
+        SwingPoint(index=15, price=101.0, timestamp="2026-08-25T09:30:00Z", is_high=False, type="HL", strength=2.0, confirmed=True)
+    ]
+    candles = [
+        Candle(timestamp=f"2026-08-24T14:{i*5:02d}:00Z" if i < 12 else f"2026-08-25T09:{(i-12)*5:02d}:00Z",
+               open=105, high=108, low=102, close=105, volume=1000)
+        for i in range(25)
+    ]
+    events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles, swings=swings, trendlines=[], df_indicators=None,
+        symbol="NIFTY 50", timeframe="5M", atr_val=atr
+    )
+    assert len(confirmed) == 0, "Inter-day synthetic bridge must be rejected"
+    inter_rejs = [c for c in debug_cands if "session boundary" in (c.rejection_reason or "").lower()]
+    assert len(inter_rejs) >= 1
+
+def test_regression_h_reliance_pattern_3_m_reversal():
+    """H. Known-good RELIANCE Pattern 3 M Reversal remains passing with exact metrics."""
+    from app.market_structure.trendlines import TrendlineDetector
+    atr = 1.95
+    prior_l = SwingPoint(index=1, price=1295.0, timestamp="2026-08-25T10:05:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
+    h1 = SwingPoint(index=5, price=1308.2, timestamp="2026-08-25T12:00:00Z", is_high=True, type="HH", strength=2.0, confirmed=True)
+    neck = SwingPoint(index=9, price=1303.1, timestamp="2026-08-25T12:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
+    h2 = SwingPoint(index=15, price=1307.5, timestamp="2026-08-25T12:45:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)
+    swings = [prior_l, h1, neck, h2]
+    
+    candles = [
+        Candle(timestamp=f"2026-08-25T12:{i*5:02d}:00Z", open=1305, high=1308, low=1302, close=1305, volume=1000)
+        for i in range(25)
+    ]
+    candles[17] = Candle(timestamp="2026-08-25T12:55:00Z", open=1304, high=1304.5, low=1302.0, close=1302.6, volume=5000)
+    
+    trendlines = TrendlineDetector.fit_trendlines(candles, swings)
+    events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
+        candles=candles, swings=swings, trendlines=trendlines, df_indicators=None,
+        symbol="RELIANCE", timeframe="5M", atr_val=atr
+    )
+    assert len(confirmed) >= 1
+    m_pat = confirmed[0]
+    assert m_pat.pattern_type == "M"
+    assert m_pat.s1_price == 1308.2
+    assert m_pat.neckline_price == 1303.1
+    assert m_pat.s2_price == 1307.5
+    assert m_pat.breakout_close == 1302.6
+    assert m_pat.target_1 == 1298.0  # 1303.1 - 5.1
+    assert m_pat.stop_loss == 1307.79  # 1307.5 + (0.15 * 1.95)
+
+
 

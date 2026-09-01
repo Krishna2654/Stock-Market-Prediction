@@ -269,7 +269,9 @@ async def get_chart_data(
                 raise HTTPException(status_code=404, detail=f"No candle data available for {symbol} on {timeframe}")
 
             df_indicators, _ = TechnicalIndicatorEngine.compute_all_indicators(candles)
-            swings, protected_swing = SwingDetector.detect_swings(candles, swing_length=5, confirmation_candles=2)
+            tf_clean = (timeframe or "15M").upper()
+            eff_swing_length = 3 if tf_clean in ["5M", "1M", "3M"] else 5
+            swings, protected_swing = SwingDetector.detect_swings(candles, swing_length=eff_swing_length, confirmation_candles=2)
             breaks = BOSCHoCHDetector.detect_structure_breaks(
                 candles=candles,
                 swings=swings,
