@@ -7,6 +7,7 @@ import {
   HighConfluenceAlert,
   MWBreakoutAlert,
   MWBreakoutStats,
+  PaginatedMWBreakoutsResponse,
   BacktestRequest,
   BacktestResult,
   HypotheticalSetup,
@@ -173,18 +174,32 @@ export const api = {
     pattern_type?: string;
     status?: string;
     date_filter?: string;
+    page?: number;
     limit?: number;
-  }): Promise<MWBreakoutAlert[]> => {
+  }): Promise<PaginatedMWBreakoutsResponse> => {
     const query = new URLSearchParams();
     if (filters?.symbol) query.append('symbol', filters.symbol);
     if (filters?.timeframe) query.append('timeframe', filters.timeframe);
     if (filters?.pattern_type) query.append('pattern_type', filters.pattern_type);
     if (filters?.status) query.append('status', filters.status);
     if (filters?.date_filter) query.append('date_filter', filters.date_filter);
-    if (filters?.limit) query.append('limit', filters.limit.toString());
+    query.append('page', (filters?.page || 1).toString());
+    query.append('limit', (filters?.limit || 50).toString());
     const res = await fetch(`${API_BASE}/alerts/mw-breakouts?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch M/W breakouts');
-    return res.json();
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      return {
+        items: data,
+        page: 1,
+        limit: data.length,
+        total: data.length,
+        total_pages: 1,
+        has_next: false,
+        has_previous: false
+      };
+    }
+    return data;
   },
 
   getMWBreakoutStats: async (): Promise<MWBreakoutStats> => {

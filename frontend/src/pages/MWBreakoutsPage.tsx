@@ -46,6 +46,14 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [stats, setStats] = useState<MWBreakoutStats | null>(null);
 
+  // Server-Side Pagination State
+  const [page, setPage] = useState<number>(1);
+  const [limit] = useState<number>(50);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [paginatedAlerts, setPaginatedAlerts] = useState<MWBreakoutAlert[]>([]);
+  const [isPageLoading, setIsPageLoading] = useState<boolean>(false);
+
   // Dynamic Browser Page Title
   useEffect(() => {
     document.title = 'M/W Breakouts — Quantitative Pattern Confluence';
@@ -61,91 +69,52 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
     }
   };
 
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [patternTypeFilter, timeframeFilter, statusFilter, dateFilter, searchQuery]);
+
+  // Fetch Server-Side Paginated Page Data
+  const fetchPage = async () => {
+    setIsPageLoading(true);
+    try {
+      const data = await api.getMWBreakouts({
+        page,
+        limit,
+        symbol: searchQuery.trim() || undefined,
+        timeframe: timeframeFilter !== 'ALL' ? timeframeFilter : undefined,
+        pattern_type: patternTypeFilter !== 'ALL' ? patternTypeFilter : undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        date_filter: dateFilter !== 'all' ? dateFilter : undefined,
+      });
+      setPaginatedAlerts(data.items);
+      setTotalPages(data.total_pages);
+      setTotalCount(data.total);
+    } catch (err) {
+      console.error('Failed to load paginated M/W breakouts:', err);
+    } finally {
+      setIsPageLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPage();
+  }, [page, patternTypeFilter, timeframeFilter, statusFilter, dateFilter, searchQuery]);
+
   useEffect(() => {
     loadStats();
   }, [alerts]);
 
-  // Filtered & Sorted Alerts
-  const filteredAlerts = useMemo(() => {
-    let result = [...alerts];
-
-    // 1. Pattern Type Filter (W / M / ALL)
-    if (patternTypeFilter !== 'ALL') {
-      result = result.filter((a) => a.pattern_type === patternTypeFilter);
+  // Handle page navigation
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages && newPage !== page) {
+      setPage(newPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+  };
 
-    // 2. Timeframe Filter
-    if (timeframeFilter !== 'ALL') {
-      result = result.filter((a) => a.timeframe.toUpperCase() === timeframeFilter.toUpperCase());
-    }
-
-    // 3. Status Filter (TARGET OPEN / TARGET 1 HIT / TARGET 2 HIT / SL HIT / ALL)
-    if (statusFilter !== 'ALL') {
-      if (statusFilter === 'COMPLETED') {
-        result = result.filter((a) => a.status === 'TARGET 1 HIT' || a.status === 'TARGET 2 HIT' || a.status === 'TARGET_1_HIT' || a.status === 'TARGET_2_HIT');
-      } else if (statusFilter === 'TARGET OPEN' || statusFilter === 'ACTIVE') {
-        result = result.filter((a) => a.status === 'TARGET OPEN' || a.status === 'ACTIVE');
-      } else if (statusFilter === 'SL HIT' || statusFilter === 'INVALIDATED') {
-        result = result.filter((a) => a.status === 'SL HIT' || a.status === 'INVALIDATED');
-      } else if (statusFilter === 'TARGET 1 HIT') {
-        result = result.filter((a) => a.status === 'TARGET 1 HIT' || a.status === 'TARGET_1_HIT');
-      } else if (statusFilter === 'TARGET 2 HIT') {
-        result = result.filter((a) => a.status === 'TARGET 2 HIT' || a.status === 'TARGET_2_HIT');
-      } else {
-        result = result.filter((a) => a.status === statusFilter);
-      }
-    }
-
-    // 4. Search Filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toUpperCase().replace(/[/_\-\s]/g, '');
-      result = result.filter(
-        (a) =>
-          a.symbol.toUpperCase().replace(/[/_\-\s]/g, '').includes(q) ||
-          (a.ticker && a.ticker.toUpperCase().replace(/[/_\-\s]/g, '').includes(q))
-      );
-    }
-
-    // 5. Date Filter
-    if (dateFilter !== 'all') {
-      const now = new Date();
-      if (dateFilter === 'today') {
-        const todayStr = now.toISOString().slice(0, 10);
-        result = result.filter((a) => a.breakout_candle_timestamp.startsWith(todayStr));
-      } else if (dateFilter === '24h') {
-        const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        result = result.filter((a) => new Date(a.breakout_candle_timestamp) >= cutoff);
-      } else if (dateFilter === '7d') {
-        const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        result = result.filter((a) => new Date(a.breakout_candle_timestamp) >= cutoff);
-      } else if (dateFilter === 'latest') {
-        result = result.slice(0, 5);
-      }
-    }
-
-    // Deduplicate alerts by pattern_id or composite key
-    const seen = new Set<string>();
-    const deduplicated: MWBreakoutAlert[] = [];
-    for (const a of result) {
-      const key = a.pattern_id || `${a.symbol}_${a.timeframe}_${a.pattern_type}_${a.breakout_candle_timestamp}`;
-      if (!seen.has(key) && !seen.has(a.alert_id)) {
-        seen.add(key);
-        seen.add(a.alert_id);
-        deduplicated.push(a);
-      }
-    }
-    result = deduplicated;
-
-    // Sort newest first by breakout_candle_timestamp
-    result.sort(
-      (a, b) => new Date(b.breakout_candle_timestamp).getTime() - new Date(a.breakout_candle_timestamp).getTime()
-    );
-
-    return result;
-  }, [alerts, patternTypeFilter, timeframeFilter, statusFilter, dateFilter, searchQuery]);
-
-  const latestHeroAlert = filteredAlerts.length > 0 ? filteredAlerts[0] : null;
-  const historyAlerts = filteredAlerts.length > 1 ? filteredAlerts.slice(1) : [];
+  const latestHeroAlert = page === 1 && paginatedAlerts.length > 0 ? paginatedAlerts[0] : null;
+  const historyAlerts = page === 1 ? paginatedAlerts.slice(1) : paginatedAlerts;
 
   // Handle Trigger Test Breakouts
   const handleTestTrigger = async (type: 'W' | 'M') => {
@@ -154,11 +123,79 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
       await api.triggerTestMWBreakout(type);
       onRefresh();
       loadStats();
+      fetchPage();
     } catch (err) {
       console.error('Test breakout error:', err);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const renderPaginationControls = () => {
+    if (totalCount === 0) return null;
+    const startItem = (page - 1) * limit + 1;
+    const endItem = Math.min(page * limit, totalCount);
+
+    const pages: (number | string)[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (page > 3) pages.push('...');
+      const start = Math.max(2, page - 1);
+      const end = Math.min(totalPages - 1, page + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (page < totalPages - 2) pages.push('...');
+      pages.push(totalPages);
+    }
+
+    return (
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
+        <div className="text-xs font-semibold text-slate-600">
+          Showing <span className="font-bold text-slate-900">{startItem}–{endItem}</span> of <span className="font-bold text-slate-900">{totalCount}</span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => handlePageChange(page - 1)}
+            disabled={page <= 1 || isPageLoading}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs flex items-center gap-1"
+          >
+            <span>← Previous</span>
+          </button>
+
+          <div className="flex items-center gap-1">
+            {pages.map((p, idx) =>
+              p === '...' ? (
+                <span key={`dots-${idx}`} className="px-1.5 text-xs text-slate-400 font-bold">
+                  ...
+                </span>
+              ) : (
+                <button
+                  key={`page-${p}`}
+                  onClick={() => handlePageChange(Number(p))}
+                  disabled={isPageLoading}
+                  className={`min-w-[32px] h-8 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    page === p
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  {p}
+                </button>
+              )
+            )}
+          </div>
+
+          <button
+            onClick={() => handlePageChange(page + 1)}
+            disabled={page >= totalPages || isPageLoading}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-2xs flex items-center gap-1"
+          >
+            <span>Next →</span>
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -255,7 +292,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <span>W Breakouts</span>
           </div>
           <div className="text-xl font-black text-emerald-700 mt-1">
-            {stats?.w_breakouts ?? alerts.filter((a) => a.pattern_type === 'W').length}
+            {stats?.w_breakouts ?? 0}
           </div>
         </div>
 
@@ -265,7 +302,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <span>M Breakdowns</span>
           </div>
           <div className="text-xl font-black text-rose-700 mt-1">
-            {stats?.m_breakdowns ?? alerts.filter((a) => a.pattern_type === 'M').length}
+            {stats?.m_breakdowns ?? 0}
           </div>
         </div>
 
@@ -275,7 +312,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <span>Target Open</span>
           </div>
           <div className="text-xl font-black text-blue-600 mt-1">
-            {stats?.active_count ?? alerts.filter((a) => a.status === 'TARGET OPEN' || a.status === 'ACTIVE').length}
+            {stats?.active_count ?? 0}
           </div>
         </div>
 
@@ -285,7 +322,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <span>Target Hit</span>
           </div>
           <div className="text-xl font-black text-emerald-600 mt-1">
-            {stats?.target_hit_count ?? alerts.filter((a) => a.status === 'TARGET 1 HIT' || a.status === 'TARGET 2 HIT' || a.status === 'TARGET_1_HIT' || a.status === 'TARGET_2_HIT').length}
+            {stats?.target_hit_count ?? 0}
           </div>
         </div>
 
@@ -295,7 +332,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <span>SL Hit</span>
           </div>
           <div className="text-xl font-black text-rose-600 mt-1">
-            {stats?.invalidated_count ?? alerts.filter((a) => a.status === 'SL HIT' || a.status === 'INVALIDATED').length}
+            {stats?.invalidated_count ?? 0}
           </div>
         </div>
       </div>
@@ -418,7 +455,11 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
       </div>
 
       {/* Main Content Area */}
-      {filteredAlerts.length === 0 ? (
+      {isPageLoading && paginatedAlerts.length === 0 ? (
+        <div className="p-12 text-center text-slate-500 font-medium">
+          Loading confirmed breakouts...
+        </div>
+      ) : paginatedAlerts.length === 0 ? (
         /* Empty State (Zero Fake Data) */
         <div className="p-8 sm:p-12 rounded-3xl bg-white border border-slate-200 shadow-sm text-center space-y-4 max-w-2xl mx-auto my-8">
           <div className="h-16 w-16 rounded-2xl bg-purple-50 text-purple-600 border border-purple-200 flex items-center justify-center mx-auto shadow-xs">
@@ -459,8 +500,11 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
           </div>
         </div>
       ) : (
-        <div className="space-y-8">
-          {/* LATEST CONFIRMED BREAKOUT (Hero Section) */}
+        <div className="space-y-6">
+          {/* Top Pagination Controls */}
+          {renderPaginationControls()}
+
+          {/* LATEST CONFIRMED BREAKOUT (Hero Section on Page 1) */}
           {latestHeroAlert && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-900 uppercase tracking-wider">
@@ -477,7 +521,10 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-900 uppercase tracking-wider">
                   <Clock className="h-4 w-4 text-blue-600" />
-                  <span>BREAKOUT HISTORY ({historyAlerts.length})</span>
+                  <span>BREAKOUT HISTORY</span>
+                </div>
+                <div className="text-xs font-medium text-slate-500">
+                  Page {page} of {totalPages}
                 </div>
               </div>
 
@@ -489,6 +536,9 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               </div>
             </div>
           )}
+
+          {/* Bottom Pagination Controls */}
+          {renderPaginationControls()}
         </div>
       )}
     </div>

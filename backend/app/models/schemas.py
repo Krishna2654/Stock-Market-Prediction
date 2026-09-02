@@ -435,6 +435,15 @@ class MWBreakoutAlert(BaseModel):
     event_created_at: str
     read: bool = False
 
+class PaginatedMWBreakoutsResponse(BaseModel):
+    items: List[MWBreakoutAlert]
+    page: int
+    limit: int
+    total: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool
+
 class BacktestRequest(BaseModel):
     symbol: str
     ticker: str

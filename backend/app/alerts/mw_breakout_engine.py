@@ -353,10 +353,8 @@ class MWBreakoutAlertEngine:
             self.alerts.remove(target_active_alert)
             self.alerts.insert(0, target_active_alert)
 
-        # Sort newest first across all instruments and cap to 200
-        self.alerts.sort(key=lambda a: a.breakout_candle_timestamp or "", reverse=True)
-        if len(self.alerts) > 200:
-            self.alerts = self.alerts[:200]
+        # Sort newest first across all instruments with deterministic secondary key (alert_id)
+        self.alerts.sort(key=lambda a: (a.breakout_candle_timestamp or "", a.alert_id or ""), reverse=True)
 
         if patterns_to_sync:
             self._save_to_storage()
@@ -538,10 +536,8 @@ class MWBreakoutAlertEngine:
                     print(f"[MWAlertEngine] Error processing pattern for {synthesis.symbol} ({tf_name}): {pat_err}")
                     continue
 
-        # Sort newest first across all instruments and cap to 200
-        self.alerts.sort(key=lambda a: a.breakout_candle_timestamp or "", reverse=True)
-        if len(self.alerts) > 200:
-            self.alerts = self.alerts[:200]
+        # Sort newest first across all instruments with deterministic secondary key (alert_id)
+        self.alerts.sort(key=lambda a: (a.breakout_candle_timestamp or "", a.alert_id or ""), reverse=True)
 
         if new_alerts or updated_alerts:
             self._save_to_storage()
@@ -654,12 +650,13 @@ class MWBreakoutAlertEngine:
         pattern_type: Optional[str] = None,
         status: Optional[str] = None,
         date_filter: Optional[str] = None,
-        limit: int = 50
+        limit: Optional[int] = 50
     ) -> List[MWBreakoutAlert]:
         """
         Retrieves filtered M/W alerts sorted newest first by breakout_candle_timestamp.
+        Deduplicates logical pattern entries and orders deterministically.
         """
-        results = self.alerts
+        results = list(self.alerts)
 
         if symbol:
             sym_norm = symbol.strip().upper().replace("/", "").replace("-", "").replace("_", "").replace(" ", "")
@@ -693,17 +690,64 @@ class MWBreakoutAlertEngine:
         if date_filter and date_filter.lower() != "all":
             now = datetime.now(timezone.utc)
             if date_filter.lower() == "today":
-                results = [a for a in results if a.breakout_candle_timestamp[:10] == now.isoformat()[:10]]
+                results = [a for a in results if (a.breakout_candle_timestamp or "")[:10] == now.isoformat()[:10]]
             elif date_filter.lower() == "24h" or date_filter.lower() == "last 24 hours":
                 cutoff = (now - timedelta(hours=24)).isoformat()
-                results = [a for a in results if a.breakout_candle_timestamp >= cutoff]
+                results = [a for a in results if (a.breakout_candle_timestamp or "") >= cutoff]
             elif date_filter.lower() == "7d" or date_filter.lower() == "last 7 days":
                 cutoff = (now - timedelta(days=7)).isoformat()
-                results = [a for a in results if a.breakout_candle_timestamp >= cutoff]
+                results = [a for a in results if (a.breakout_candle_timestamp or "") >= cutoff]
 
-        # Sort newest first by breakout_candle_timestamp
-        results.sort(key=lambda a: a.breakout_candle_timestamp, reverse=True)
-        return results[:limit]
+        # Deterministic sort: breakout_candle_timestamp DESC, alert_id DESC
+        results.sort(key=lambda a: (a.breakout_candle_timestamp or "", a.alert_id or ""), reverse=True)
+
+        # Deduplicate to preserve unique logical patterns (newest record wins)
+        seen_keys = set()
+        deduped = []
+        for a in results:
+            key = a.pattern_id or f"{a.symbol}_{a.timeframe}_{a.pattern_type}_{a.breakout_candle_timestamp}"
+            if key not in seen_keys and a.alert_id not in seen_keys:
+                seen_keys.add(key)
+                seen_keys.add(a.alert_id)
+                deduped.append(a)
+        results = deduped
+
+        if limit is not None and limit > 0:
+            return results[:limit]
+        return results
+
+    def get_paginated_alerts(
+        self,
+        symbol: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        pattern_type: Optional[str] = None,
+        status: Optional[str] = None,
+        date_filter: Optional[str] = None,
+        page: int = 1,
+        limit: int = 50
+    ) -> Tuple[List[MWBreakoutAlert], int, int, bool, bool]:
+        """
+        Retrieves paginated M/W alerts with deterministic ordering and metadata.
+        Returns: (items, total, total_pages, has_next, has_previous)
+        """
+        all_matching = self.get_alerts(
+            symbol=symbol,
+            timeframe=timeframe,
+            pattern_type=pattern_type,
+            status=status,
+            date_filter=date_filter,
+            limit=None
+        )
+        total = len(all_matching)
+        limit = max(1, limit)
+        page = max(1, page)
+        total_pages = max(1, (total + limit - 1) // limit)
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        items = all_matching[start_idx:end_idx]
+        has_next = page < total_pages
+        has_previous = page > 1
+        return items, total, total_pages, has_next, has_previous
 
     def get_alert_by_id(self, alert_id: str) -> Optional[MWBreakoutAlert]:
         """
@@ -741,12 +785,22 @@ class MWBreakoutAlertEngine:
         self._save_to_storage()
 
     def get_summary_stats(self) -> Dict[str, int]:
-        w_count = sum(1 for a in self.alerts if a.pattern_type == "W")
-        m_count = sum(1 for a in self.alerts if a.pattern_type == "M")
-        active_count = sum(1 for a in self.alerts if a.status in ["TARGET OPEN", "ACTIVE"])
-        target_hit_count = sum(1 for a in self.alerts if a.status in ["TARGET 1 HIT", "TARGET 2 HIT", "TARGET_1_HIT", "TARGET_2_HIT"])
-        invalidated_count = sum(1 for a in self.alerts if a.status in ["SL HIT", "INVALIDATED"])
-        unread_count = sum(1 for a in self.alerts if not a.read)
+        # Deduplicate logical patterns so stats accurately represent unique confirmed patterns
+        seen_keys = set()
+        deduped = []
+        for a in self.alerts:
+            key = a.pattern_id or f"{a.symbol}_{a.timeframe}_{a.pattern_type}_{a.breakout_candle_timestamp}"
+            if key not in seen_keys and a.alert_id not in seen_keys:
+                seen_keys.add(key)
+                seen_keys.add(a.alert_id)
+                deduped.append(a)
+
+        w_count = sum(1 for a in deduped if a.pattern_type == "W")
+        m_count = sum(1 for a in deduped if a.pattern_type == "M")
+        active_count = sum(1 for a in deduped if a.status in ["TARGET OPEN", "ACTIVE"])
+        target_hit_count = sum(1 for a in deduped if a.status in ["TARGET 1 HIT", "TARGET 2 HIT", "TARGET_1_HIT", "TARGET_2_HIT"])
+        invalidated_count = sum(1 for a in deduped if a.status in ["SL HIT", "INVALIDATED"])
+        unread_count = sum(1 for a in deduped if not a.read)
         return {
             "w_breakouts": w_count,
             "m_breakdowns": m_count,
@@ -754,7 +808,7 @@ class MWBreakoutAlertEngine:
             "target_hit_count": target_hit_count,
             "invalidated_count": invalidated_count,
             "unread_count": unread_count,
-            "total_count": len(self.alerts)
+            "total_count": len(deduped)
         }
 
     async def repair_stored_alerts(self, provider) -> Dict[str, Any]:
@@ -867,10 +921,7 @@ class MWBreakoutAlertEngine:
                 print(f"[MWAlertEngine] Error syncing {inst.symbol}: {e}")
                 errors += 1
 
-        self.alerts.sort(key=lambda a: a.breakout_candle_timestamp or "", reverse=True)
-        if len(self.alerts) > 200:
-            self.alerts = self.alerts[:200]
-
+        self.alerts.sort(key=lambda a: (a.breakout_candle_timestamp or "", a.alert_id or ""), reverse=True)
         self._save_to_storage()
         return {
             "total_alerts": len(self.alerts),

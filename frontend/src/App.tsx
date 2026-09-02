@@ -171,8 +171,8 @@ const AppContent: React.FC = () => {
     }).catch((e) => console.warn('Fast overview initial load:', e));
 
     // Independent background fetch for M/W Breakouts without blocking the main dashboard & chart
-    api.getMWBreakouts().then((mwAlerts) => {
-      setMwBreakoutAlerts(mwAlerts);
+    api.getMWBreakouts().then((res) => {
+      setMwBreakoutAlerts(res.items);
     }).catch((e) => console.warn('M/W initial load:', e));
 
     api.getMWBreakoutStats().then((stats) => {
@@ -182,8 +182,8 @@ const AppContent: React.FC = () => {
 
   const loadMWBreakouts = async () => {
     try {
-      const mwAlerts = await api.getMWBreakouts();
-      setMwBreakoutAlerts(mwAlerts);
+      const res = await api.getMWBreakouts();
+      setMwBreakoutAlerts(res.items);
       const stats = await api.getMWBreakoutStats();
       setMwUnreadCount(stats.unread_count || 0);
     } catch (err) {

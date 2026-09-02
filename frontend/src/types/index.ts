@@ -431,6 +431,16 @@ export interface MWBreakoutStats {
   total_count: number;
 }
 
+export interface PaginatedMWBreakoutsResponse {
+  items: MWBreakoutAlert[];
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_previous: boolean;
+}
+
 export interface BacktestRequest {
   symbol: string;
   ticker: string;

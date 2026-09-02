@@ -1,9 +1,9 @@
 import uuid
 import asyncio
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime, timezone
-from app.models.schemas import AlertRule, AlertNotification, HighConfluenceAlert, MWBreakoutAlert, TrendlineShortlistCandidate, WMPatternStructure, MultiTimeframeSynthesis
+from app.models.schemas import AlertRule, AlertNotification, HighConfluenceAlert, MWBreakoutAlert, PaginatedMWBreakoutsResponse, TrendlineShortlistCandidate, WMPatternStructure, MultiTimeframeSynthesis
 from app.alerts.engine import alert_engine
 from app.alerts.high_confluence_engine import high_confluence_alert_engine
 from app.alerts.mw_breakout_engine import mw_breakout_engine
@@ -235,22 +235,50 @@ async def trigger_test_high_confluence_alert(
 # DEDICATED M/W BREAKOUT PAGE ENDPOINTS (ZERO FAKE DATA PIPELINE)
 # -------------------------------------------------------------
 
-@router.get("/mw-breakouts", response_model=List[MWBreakoutAlert])
+@router.get("/mw-breakouts", response_model=Union[PaginatedMWBreakoutsResponse, List[MWBreakoutAlert]])
 def get_mw_breakout_alerts(
     symbol: Optional[str] = Query(None, description="Symbol filter or search query"),
     timeframe: Optional[str] = Query(None, description="Timeframe filter (4H, 1H, 15M, 5M, or All)"),
     pattern_type: Optional[str] = Query(None, description="Pattern type (W, M, or All)"),
     status: Optional[str] = Query(None, description="Status filter (ACTIVE, COMPLETED, INVALIDATED, or All)"),
     date_filter: Optional[str] = Query(None, description="Date filter (latest, today, 24h, 7d, all)"),
-    limit: int = Query(200, description="Max results")
+    page: Optional[int] = Query(None, ge=1, description="Page number (1-based). When provided, returns paginated metadata response."),
+    limit: int = Query(50, ge=1, le=500, description="Page size / max results")
 ):
+    eff_symbol = symbol if isinstance(symbol, str) else (getattr(symbol, "default", None) if symbol is not None else None)
+    eff_timeframe = timeframe if isinstance(timeframe, str) else (getattr(timeframe, "default", None) if timeframe is not None else None)
+    eff_pattern_type = pattern_type if isinstance(pattern_type, str) else (getattr(pattern_type, "default", None) if pattern_type is not None else None)
+    eff_status = status if isinstance(status, str) else (getattr(status, "default", None) if status is not None else None)
+    eff_date_filter = date_filter if isinstance(date_filter, str) else (getattr(date_filter, "default", None) if date_filter is not None else None)
+    eff_page = page if isinstance(page, int) else (getattr(page, "default", None) if page is not None else None)
+    eff_limit = limit if isinstance(limit, int) else (getattr(limit, "default", 50) or 50)
+
+    if eff_page is not None:
+        items, total, total_pages, has_next, has_prev = mw_breakout_engine.get_paginated_alerts(
+            symbol=eff_symbol,
+            timeframe=eff_timeframe,
+            pattern_type=eff_pattern_type,
+            status=eff_status,
+            date_filter=eff_date_filter,
+            page=eff_page,
+            limit=eff_limit
+        )
+        return PaginatedMWBreakoutsResponse(
+            items=items,
+            page=eff_page,
+            limit=eff_limit,
+            total=total,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_previous=has_prev
+        )
     return mw_breakout_engine.get_alerts(
-        symbol=symbol,
-        timeframe=timeframe,
-        pattern_type=pattern_type,
-        status=status,
-        date_filter=date_filter,
-        limit=limit
+        symbol=eff_symbol,
+        timeframe=eff_timeframe,
+        pattern_type=eff_pattern_type,
+        status=eff_status,
+        date_filter=eff_date_filter,
+        limit=eff_limit
     )
 
 @router.get("/mw-breakouts-candidates", response_model=List[WMPatternStructure])
