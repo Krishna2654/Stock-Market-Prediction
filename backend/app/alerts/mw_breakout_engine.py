@@ -281,7 +281,8 @@ class MWBreakoutAlertEngine:
                 existing.ema_score = getattr(pat, "ema_score", 0)
                 existing.reversal_points = getattr(pat, "reversal_points", 40)
                 existing.trendline_points = getattr(pat, "trendline_points", 0)
-                existing.ema_points = getattr(pat, "ema_points", 0)
+                existing.trade_quality = getattr(pat, "trade_quality", "MEDIUM")
+                existing.entry_status = getattr(pat, "entry_status", "VALID")
                 if getattr(pat, "outcome_timestamp", None) and not existing.outcome_timestamp:
                     existing.outcome_timestamp = pat.outcome_timestamp
 
@@ -333,6 +334,8 @@ class MWBreakoutAlertEngine:
                     trendline_points=getattr(pat, "trendline_points", 0),
                     ema_points=getattr(pat, "ema_points", 0),
                     status="TARGET OPEN",
+                    trade_quality=getattr(pat, "trade_quality", "MEDIUM"),
+                    entry_status=getattr(pat, "entry_status", "VALID"),
                     outcome_timestamp=getattr(pat, "outcome_timestamp", None),
                     event_created_at=now_str,
                     read=False

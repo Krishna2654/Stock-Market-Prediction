@@ -200,6 +200,8 @@ export const ChartView: React.FC<ChartViewProps> = ({
     };
   }, []);
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   // Fetch real market data for active timeframe with instant cache hit
   const fetchChart = useCallback(async (showSpinner = false) => {
     const cacheKey = `${symbol}_${activeTimeframe}`;
@@ -207,6 +209,7 @@ export const ChartView: React.FC<ChartViewProps> = ({
       const cached = chartMemoryCache.get(cacheKey);
       setChartData(cached);
       setIsLoading(false);
+      setFetchError(null);
       if (onActivePatternChange) {
         onActivePatternChange(cached.active_wm_pattern || null, cached.active_wm_alert || null);
       }
@@ -215,14 +218,16 @@ export const ChartView: React.FC<ChartViewProps> = ({
     }
 
     try {
+      setFetchError(null);
       const data = await api.getChartData(symbol, activeTimeframe, 250);
       chartMemoryCache.set(cacheKey, data);
       setChartData(data);
       if (onActivePatternChange) {
         onActivePatternChange(data.active_wm_pattern || null, data.active_wm_alert || null);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load chart data:', err);
+      setFetchError(err?.message || 'Unable to connect to live market feed');
     } finally {
       setIsLoading(false);
     }
@@ -1515,6 +1520,44 @@ export const ChartView: React.FC<ChartViewProps> = ({
             <div className="flex items-center gap-2 text-slate-700 font-semibold text-xs">
               <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
               <span>Loading {symbol} ({activeTimeframe}) live market data...</span>
+            </div>
+          </div>
+        )}
+
+        {!isLoading && (!chartData || !chartData.candles || chartData.candles.length === 0) && (
+          <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
+            <div className="p-3 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200 shadow-2xs">
+              <Radio className="h-6 w-6 animate-pulse" />
+            </div>
+            <div className="max-w-md">
+              <h4 className="font-bold text-slate-800 text-sm">
+                {fetchError ? 'Market Feed Notice' : `Awaiting ${symbol} (${activeTimeframe}) Feed`}
+              </h4>
+              <p className="text-xs text-slate-500 mt-1">
+                {fetchError || `Live candle feed for ${symbol} on ${activeTimeframe} timeframe is initializing. You can retry or select another timeframe.`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={() => fetchChart(true)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Retry Connection</span>
+              </button>
+              {(['15M', '1H', '4H', '5M'] as const).map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => handleTimeframeChange(tf)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                    activeTimeframe === tf
+                      ? 'bg-blue-50 text-blue-700 border-blue-300'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
             </div>
           </div>
         )}

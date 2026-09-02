@@ -230,90 +230,86 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
       </div>
 
       {/* Selected Market Executive Header */}
-      {currentSynthesis && (
-        <div className="glass-panel rounded-3xl p-4 sm:p-6 shadow-xs flex flex-wrap items-center justify-between gap-4 sm:gap-6 border-l-4 border-blue-600 bg-white border border-slate-200 w-full min-w-0">
-          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-            <div className="p-2.5 sm:p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 shadow-2xs shrink-0">
-              <TrendingUp className="h-5 w-5 sm:h-7 sm:w-7" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
-                  {currentSynthesis.symbol}
-                </h1>
-                <span className="text-xs font-mono px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 font-bold border border-slate-200 shrink-0">
-                  {currentSynthesis.ticker}
-                </span>
-                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${dataStatusStyle} flex items-center gap-1`}>
-                  <Radio className="h-2.5 w-2.5 animate-pulse" />
-                  {dataStatus}
-                </span>
-                {currentSynthesis.market_session && (
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1.5 ${
-                    currentSynthesis.market_session.is_running
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                      : 'bg-slate-100 text-slate-700 border-slate-300'
-                  }`}>
-                    <span className={`h-2 w-2 rounded-full ${currentSynthesis.market_session.is_running ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                    {currentSynthesis.market_session.message}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-500 mt-1">
-                {currentSynthesis.status_message} • Last Updated: {formatMarketTimeWithSeconds(currentSynthesis.last_updated, activeSymbol)}
-              </p>
-            </div>
+      <div className="glass-panel rounded-3xl p-4 sm:p-6 shadow-xs flex flex-wrap items-center justify-between gap-4 sm:gap-6 border-l-4 border-blue-600 bg-white border border-slate-200 w-full min-w-0">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+          <div className="p-2.5 sm:p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 shadow-2xs shrink-0">
+            <TrendingUp className="h-5 w-5 sm:h-7 sm:w-7" />
           </div>
-
-          {/* Header Stats */}
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Live Price */}
-            <div className="bg-slate-50 px-5 py-2.5 rounded-2xl border border-slate-200 text-right shadow-2xs">
-              <span className="text-[10px] text-slate-500 block uppercase font-bold">Current Live Price</span>
-              <span className="text-2xl font-black font-mono text-slate-900">
-                {currSym}{currentSynthesis.current_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
+                {currentSynthesis?.symbol || activeSymbol}
+              </h1>
+              <span className="text-xs font-mono px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 font-bold border border-slate-200 shrink-0">
+                {currentSynthesis?.ticker || matchedInstrument?.ticker || activeSymbol}
               </span>
-            </div>
-
-            {/* Overall Bias */}
-            <div className="bg-slate-50 px-4 py-2.5 rounded-2xl border border-slate-200 text-center shadow-2xs">
-              <span className="text-[10px] text-slate-500 block uppercase font-bold">Overall Bias</span>
-              <span className={`text-sm font-extrabold flex items-center gap-1 ${
-                currentSynthesis.overall_bias === 'BULLISH'
-                  ? 'text-emerald-700'
-                  : currentSynthesis.overall_bias === 'BEARISH'
-                  ? 'text-rose-700'
-                  : 'text-amber-700'
-              }`}>
-                {currentSynthesis.overall_bias === 'BULLISH' ? <ArrowUpRight className="h-4 w-4" /> : currentSynthesis.overall_bias === 'BEARISH' ? <ArrowDownRight className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
-                {currentSynthesis.overall_bias}
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${dataStatusStyle} flex items-center gap-1`}>
+                <Radio className="h-2.5 w-2.5 animate-pulse" />
+                {currentSynthesis ? dataStatus : 'INITIALIZING FEED'}
               </span>
+              {currentSynthesis?.market_session && (
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1.5 ${
+                  currentSynthesis.market_session.is_running
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-slate-100 text-slate-700 border-slate-300'
+                }`}>
+                  <span className={`h-2 w-2 rounded-full ${currentSynthesis.market_session.is_running ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                  {currentSynthesis.market_session.message}
+                </span>
+              )}
             </div>
-
-            {/* Evidence Score */}
-            <div className="bg-slate-50 px-4 py-2.5 rounded-2xl border border-slate-200 text-center shadow-2xs">
-              <span className="text-[10px] text-slate-500 block uppercase font-bold">Evidence Score</span>
-              <span className="text-lg font-black font-mono text-blue-600">
-                {currentSynthesis.evidence_score.total_score}/100
-              </span>
-            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              {currentSynthesis?.status_message || 'Initializing live market quantitative structure feed...'} • Last Updated: {currentSynthesis ? formatMarketTimeWithSeconds(currentSynthesis.last_updated, activeSymbol) : 'Connecting...'}
+            </p>
           </div>
         </div>
-      )}
+
+        {/* Header Stats */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Live Price */}
+          <div className="bg-slate-50 px-5 py-2.5 rounded-2xl border border-slate-200 text-right shadow-2xs">
+            <span className="text-[10px] text-slate-500 block uppercase font-bold">Current Live Price</span>
+            <span className="text-2xl font-black font-mono text-slate-900">
+              {currentSynthesis && currentSynthesis.current_price > 0
+                ? `${currSym}${currentSynthesis.current_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : 'Loading...'}
+            </span>
+          </div>
+
+          {/* Overall Bias */}
+          <div className="bg-slate-50 px-4 py-2.5 rounded-2xl border border-slate-200 text-center shadow-2xs">
+            <span className="text-[10px] text-slate-500 block uppercase font-bold">Overall Bias</span>
+            <span className={`text-sm font-extrabold flex items-center gap-1 ${
+              currentSynthesis?.overall_bias === 'BULLISH'
+                ? 'text-emerald-700'
+                : currentSynthesis?.overall_bias === 'BEARISH'
+                ? 'text-rose-700'
+                : 'text-amber-700'
+            }`}>
+              {currentSynthesis?.overall_bias === 'BULLISH' ? <ArrowUpRight className="h-4 w-4" /> : currentSynthesis?.overall_bias === 'BEARISH' ? <ArrowDownRight className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+              {currentSynthesis?.overall_bias || 'NEUTRAL'}
+            </span>
+          </div>
+
+          {/* Evidence Score */}
+          <div className="bg-slate-50 px-4 py-2.5 rounded-2xl border border-slate-200 text-center shadow-2xs">
+            <span className="text-[10px] text-slate-500 block uppercase font-bold">Evidence Score</span>
+            <span className="text-lg font-black font-mono text-blue-600">
+              {currentSynthesis?.evidence_score?.total_score ?? 50}/100
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* 1. What Just Changed Delta Breakout Pulse Panel */}
-      {currentSynthesis && (
-        <WhatJustChangedPanel
-          whatJustChanged={currentSynthesis.what_just_changed}
-          latestEvent={currentSynthesis.latest_important_event}
-          currentSymbol={activeSymbol}
-        />
-      )}
+      <WhatJustChangedPanel
+        whatJustChanged={currentSynthesis?.what_just_changed}
+        latestEvent={currentSynthesis?.latest_important_event}
+        currentSymbol={activeSymbol}
+      />
 
       {/* 2. 4-Timeframe Breakdown Cards */}
-      {currentSynthesis && (
-        <MultiTimeframeCards timeframes={currentSynthesis.timeframes} />
-      )}
+      <MultiTimeframeCards timeframes={currentSynthesis?.timeframes || {}} />
 
       {/* 3. Interactive Candlestick Chart with Full Pan & Zoom */}
       <ChartView
@@ -322,25 +318,23 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
         onSelectTimeframe={setSelectedTimeframe}
         onActivePatternChange={(_pat, alert) => setActiveChartAlert(alert)}
         keySupports={
-          currentSynthesis?.timeframes[selectedTimeframe]?.support_resistance?.all_levels
-            ?.filter((l: any) => l.type === 'SUPPORT')
+          currentSynthesis?.timeframes?.[selectedTimeframe]?.support_resistance?.all_levels
+            ?.filter((l: any) => l.level_type === 'SUPPORT' || l.type === 'SUPPORT')
             ?.map((l: any) => l.price) || currentSynthesis?.key_supports || []
         }
         keyResistances={
-          currentSynthesis?.timeframes[selectedTimeframe]?.support_resistance?.all_levels
-            ?.filter((l: any) => l.type === 'RESISTANCE')
+          currentSynthesis?.timeframes?.[selectedTimeframe]?.support_resistance?.all_levels
+            ?.filter((l: any) => l.level_type === 'RESISTANCE' || l.type === 'RESISTANCE')
             ?.map((l: any) => l.price) || currentSynthesis?.key_resistances || []
         }
         invalidationLevel={currentSynthesis?.invalidation_level}
       />
 
       {/* 4. Structural Multi-Trendlines Matrix Panel (Synchronized with selectedTimeframe) */}
-      {currentSynthesis && (
-        <TrendlinePanel
-          trendlines={currentSynthesis.timeframes[selectedTimeframe]?.trendlines || []}
-          timeframe={selectedTimeframe}
-        />
-      )}
+      <TrendlinePanel
+        trendlines={currentSynthesis?.timeframes?.[selectedTimeframe]?.trendlines || []}
+        timeframe={selectedTimeframe}
+      />
 
       {/* 4.5. DEDICATED M/W BREAKOUT CARD (Directly below Chart & Trendlines) */}
       {currentMWAlert && (
@@ -380,30 +374,35 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
       />
 
       {/* 6. Predictive Target Roadmaps & Order Blocks (Synchronized with selectedTimeframe) */}
-      {currentSynthesis && (
-        <PredictiveScenarioBox
-          scenarios={currentSynthesis.timeframes[selectedTimeframe]?.predictive_scenarios || currentSynthesis.predictive_scenarios}
-          symbol={activeSymbol}
-        />
-      )}
+      <PredictiveScenarioBox
+        scenarios={currentSynthesis?.timeframes?.[selectedTimeframe]?.predictive_scenarios || currentSynthesis?.predictive_scenarios || null}
+        symbol={activeSymbol}
+      />
 
       {/* 6. Evidence Score Gauge & Key S/R Panels (Synchronized with selectedTimeframe) */}
-      {currentSynthesis && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <EvidenceScoreGauge scoreData={currentSynthesis.evidence_score} />
-          <SupportResistanceBox
-            sr={currentSynthesis.timeframes[selectedTimeframe]?.support_resistance || {
-              major_support: currentSynthesis.key_supports[0] || null,
-              minor_support: currentSynthesis.key_supports[1] || null,
-              current_price: currentSynthesis.current_price,
-              minor_resistance: currentSynthesis.key_resistances[0] || null,
-              major_resistance: currentSynthesis.key_resistances[1] || null,
-              all_levels: []
-            }}
-            invalidationLevel={currentSynthesis.invalidation_level}
-          />
-        </div>
-      )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <EvidenceScoreGauge scoreData={currentSynthesis?.evidence_score || {
+          total_score: 50,
+          category: 'Mixed Evidence',
+          structure_points: 10,
+          htf_alignment_points: 10,
+          momentum_points: 10,
+          volume_points: 10,
+          breakout_points: 10,
+          details: []
+        }} />
+        <SupportResistanceBox
+          sr={currentSynthesis?.timeframes?.[selectedTimeframe]?.support_resistance || {
+            major_support: currentSynthesis?.key_supports?.[0] || null,
+            minor_support: currentSynthesis?.key_supports?.[1] || null,
+            current_price: currentSynthesis?.current_price || 0,
+            minor_resistance: currentSynthesis?.key_resistances?.[0] || null,
+            major_resistance: currentSynthesis?.key_resistances?.[1] || null,
+            all_levels: []
+          }}
+          invalidationLevel={currentSynthesis?.invalidation_level}
+        />
+      </div>
 
       {/* 7. AI Summary Interpretation Box */}
       <AISummaryBox

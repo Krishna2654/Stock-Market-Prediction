@@ -7,7 +7,17 @@ interface EvidenceScoreGaugeProps {
 }
 
 export const EvidenceScoreGauge: React.FC<EvidenceScoreGaugeProps> = ({ scoreData }) => {
-  const score = scoreData.total_score;
+  const safeData = scoreData || {
+    total_score: 50,
+    category: 'Mixed Evidence',
+    structure_points: 10,
+    htf_alignment_points: 10,
+    momentum_points: 10,
+    volume_points: 10,
+    breakout_points: 10,
+    details: []
+  };
+  const score = safeData.total_score ?? 50;
 
   let circleColor = '#d97706';
   let badgeStyle = 'bg-amber-50 text-amber-700 border-amber-300';
@@ -28,11 +38,11 @@ export const EvidenceScoreGauge: React.FC<EvidenceScoreGaugeProps> = ({ scoreDat
 
   // Factors
   const factors = [
-    { label: 'Market Structure', pts: scoreData.structure_points, max: 25, color: 'bg-emerald-500' },
-    { label: 'HTF Trend Alignment', pts: scoreData.htf_alignment_points, max: 25, color: 'bg-blue-500' },
-    { label: 'Momentum (RSI/EMA)', pts: scoreData.momentum_points, max: 20, color: 'bg-indigo-500' },
-    { label: 'Volume Expansion', pts: scoreData.volume_points, max: 15, color: 'bg-amber-500' },
-    { label: 'Breakout Confirmation', pts: scoreData.breakout_points, max: 15, color: 'bg-purple-500' }
+    { label: 'Market Structure', pts: safeData.structure_points ?? 10, max: 25, color: 'bg-emerald-500' },
+    { label: 'HTF Trend Alignment', pts: safeData.htf_alignment_points ?? 10, max: 25, color: 'bg-blue-500' },
+    { label: 'Momentum (RSI/EMA)', pts: safeData.momentum_points ?? 10, max: 20, color: 'bg-indigo-500' },
+    { label: 'Volume Expansion', pts: safeData.volume_points ?? 10, max: 15, color: 'bg-amber-500' },
+    { label: 'Breakout Confirmation', pts: safeData.breakout_points ?? 10, max: 15, color: 'bg-purple-500' }
   ];
 
   return (

@@ -101,7 +101,21 @@ class WMPatternStructure(BaseModel):
     target_2: Optional[float] = None
     stop_loss: Optional[float] = None
     risk_reward_ratio: Optional[float] = None
+    trade_quality: Optional[str] = "MEDIUM"
+    entry_status: Optional[str] = "VALID"
+    breakout_status: Optional[str] = "CONFIRMED"
     outcome_timestamp: Optional[str] = None
+    preceding_regime: Optional[str] = None
+    net_displacement: Optional[float] = None
+    primary_leg_amplitude: Optional[float] = None
+    retest_leg_amplitude: Optional[float] = None
+    s1_s2_difference: Optional[float] = None
+    allowed_symmetry: Optional[float] = None
+    allowed_sweep: Optional[float] = None
+    reaction_zone_strength: Optional[float] = None
+    intermediate_wave_count: Optional[int] = None
+    multi_wave_rejected: Optional[bool] = None
+    continuation_rejected: Optional[bool] = None
 
 class StructureBreakEvent(BaseModel):
     id: str
@@ -414,6 +428,8 @@ class MWBreakoutAlert(BaseModel):
 
     # Lifecycle & status tracking
     status: Literal["TARGET OPEN", "TARGET 1 HIT", "TARGET 2 HIT", "SL HIT", "ACTIVE", "TARGET_1_HIT", "TARGET_2_HIT", "INVALIDATED", "EXPIRED"] = "TARGET OPEN"
+    trade_quality: Optional[str] = "MEDIUM"
+    entry_status: Optional[str] = "VALID"
     outcome_timestamp: Optional[str] = None
     stop_loss: Optional[float] = None
     event_created_at: str

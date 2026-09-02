@@ -23,11 +23,21 @@ import { SettingsModal } from './components/SettingsModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Bell } from 'lucide-react';
 
+const DEFAULT_INSTRUMENTS: InstrumentConfig[] = [
+  { symbol: 'NIFTY 50', ticker: '^NSEI', exchange: 'NSE', asset_type: 'INDEX', is_active: true },
+  { symbol: 'BANK NIFTY', ticker: '^NSEBANK', exchange: 'NSE', asset_type: 'INDEX', is_active: true },
+  { symbol: 'FINNIFTY', ticker: 'NIFTY_FIN_SERVICE.NS', exchange: 'NSE', asset_type: 'INDEX', is_active: true },
+  { symbol: 'RELIANCE', ticker: 'RELIANCE.NS', exchange: 'NSE', asset_type: 'EQUITY', is_active: true },
+  { symbol: 'TCS', ticker: 'TCS.NS', exchange: 'NSE', asset_type: 'EQUITY', is_active: true },
+  { symbol: 'BTC/USD', ticker: 'BTC-USD', exchange: 'CRYPTO', asset_type: 'CRYPTO', is_active: true },
+  { symbol: 'ETH/USD', ticker: 'ETH-USD', exchange: 'CRYPTO', asset_type: 'CRYPTO', is_active: true }
+];
+
 const AppContent: React.FC = () => {
   const navigate = useNavigate();
 
   // Core Data State
-  const [instruments, setInstruments] = useState<InstrumentConfig[]>([]);
+  const [instruments, setInstruments] = useState<InstrumentConfig[]>(DEFAULT_INSTRUMENTS);
   const [syntheses, setSyntheses] = useState<Record<string, MultiTimeframeSynthesis>>({});
   const [currentProvider, setCurrentProvider] = useState<string>('yfinance');
   const [availableProviders, setAvailableProviders] = useState<string[]>(['yfinance']);
@@ -81,19 +91,29 @@ const AppContent: React.FC = () => {
   // Load initial instrument configuration, rules, standard notifications, and high-confluence alerts
   const loadInitialData = async () => {
     try {
-      const [instList, provStatus, rulesList, notifs, hcAlerts] = await Promise.all([
+      const [instRes, provRes, rulesRes, notifsRes, hcAlertsRes] = await Promise.allSettled([
         api.getInstruments(),
         api.getProviderStatus(),
         api.getAlertRules(),
         api.getNotifications(),
         api.getHighConfluenceAlerts()
       ]);
-      setInstruments(instList);
-      setCurrentProvider(provStatus.current_provider);
-      setAvailableProviders(provStatus.available_providers);
-      setRules(rulesList);
-      setNotifications(notifs);
-      setHighConfluenceAlerts(hcAlerts);
+      if (instRes.status === 'fulfilled' && instRes.value?.length > 0) {
+        setInstruments(instRes.value);
+      }
+      if (provRes.status === 'fulfilled' && provRes.value) {
+        setCurrentProvider(provRes.value.current_provider);
+        setAvailableProviders(provRes.value.available_providers);
+      }
+      if (rulesRes.status === 'fulfilled' && rulesRes.value) {
+        setRules(rulesRes.value);
+      }
+      if (notifsRes.status === 'fulfilled' && notifsRes.value) {
+        setNotifications(notifsRes.value);
+      }
+      if (hcAlertsRes.status === 'fulfilled' && hcAlertsRes.value) {
+        setHighConfluenceAlerts(hcAlertsRes.value);
+      }
     } catch (err) {
       console.error('Core initialization error:', err);
     }
@@ -116,18 +136,21 @@ const AppContent: React.FC = () => {
                 status_message: 'Live Market Data',
                 current_price: item.current_price,
                 timeframes: {},
-                overall_bias: item.overall_bias,
+                overall_bias: item.overall_bias || 'NEUTRAL',
                 current_state: 'NO CLEAR STRUCTURE',
                 evidence_score: {
-                  total_score: item.evidence_score,
-                  price_action: 20,
-                  trend_structure: 20,
-                  momentum: 15,
-                  volatility: 15,
-                  volume: 10,
-                  pattern_confluence: 10,
-                  interpretation: 'Fast Feed'
+                  total_score: item.evidence_score || 50,
+                  category: 'Mixed Evidence',
+                  structure_points: 10,
+                  htf_alignment_points: 10,
+                  momentum_points: 10,
+                  volume_points: 10,
+                  breakout_points: 10,
+                  details: []
                 },
+                key_supports: [],
+                key_resistances: [],
+                predictive_scenarios: {},
                 confirmation_state: 'Active'
               } as any;
             } else if (item.current_price > 0 && next[item.symbol].current_price === 0) {
@@ -301,24 +324,28 @@ const AppContent: React.FC = () => {
           <Route
             path="/"
             element={
-              <MarketAnalysisPage
-                instruments={instruments}
-                syntheses={syntheses}
-                highConfluenceAlerts={highConfluenceAlerts}
-                mwBreakoutAlerts={mwBreakoutAlerts}
-                onClearHighConfluenceAlerts={() => setHighConfluenceAlerts([])}
-                onHighConfluenceAlertTriggered={(alert) => {
-                  setHighConfluenceAlerts((prev) => {
-                    if (prev.some((a) => a.id === alert.id)) return prev;
-                    return [alert, ...prev];
-                  });
-                }}
-                onOpenAlerts={() => {
-                  setIsAlertsOpen(true);
-                  setUnreadCount(0);
-                }}
-                onOpenBacktest={() => navigate('/backtest')}
-              />
+              <ErrorBoundary fallbackTitle="Live Market Analysis Temporarily Unavailable">
+                <MarketAnalysisPage
+                  instruments={instruments}
+                  syntheses={syntheses}
+                  highConfluenceAlerts={highConfluenceAlerts}
+                  mwBreakoutAlerts={mwBreakoutAlerts}
+                  onClearHighConfluenceAlerts={() => setHighConfluenceAlerts([])}
+                  onHighConfluenceAlertTriggered={(alert) => {
+                    setHighConfluenceAlerts((prev) => {
+                      if (prev.some((a) => a.id === alert.id)) return prev;
+                      return [alert, ...prev];
+                    });
+                  }}
+                  onOpenAlerts={() => {
+                    setIsAlertsOpen(true);
+                    setUnreadCount(0);
+                  }}
+                  onOpenBacktest={() => navigate('/backtest')}
+                  onRefreshAll={refreshAllAnalysis}
+                  isRefreshing={isLoading}
+                />
+              </ErrorBoundary>
             }
           />
 
@@ -328,13 +355,15 @@ const AppContent: React.FC = () => {
           <Route
             path="/markets"
             element={
-              <MarketListPage
-                instruments={instruments}
-                syntheses={syntheses}
-                isLoading={isLoading}
-                onRefresh={refreshAllAnalysis}
-                onOpenManageModal={() => setIsManageOpen(true)}
-              />
+              <ErrorBoundary fallbackTitle="Market List Temporarily Unavailable">
+                <MarketListPage
+                  instruments={instruments}
+                  syntheses={syntheses}
+                  isLoading={isLoading}
+                  onRefresh={refreshAllAnalysis}
+                  onOpenManageModal={() => setIsManageOpen(true)}
+                />
+              </ErrorBoundary>
             }
           />
 
@@ -342,24 +371,28 @@ const AppContent: React.FC = () => {
           <Route
             path="/markets/:symbol"
             element={
-              <MarketAnalysisPage
-                instruments={instruments}
-                syntheses={syntheses}
-                highConfluenceAlerts={highConfluenceAlerts}
-                mwBreakoutAlerts={mwBreakoutAlerts}
-                onClearHighConfluenceAlerts={() => setHighConfluenceAlerts([])}
-                onHighConfluenceAlertTriggered={(alert) => {
-                  setHighConfluenceAlerts((prev) => {
-                    if (prev.some((a) => a.id === alert.id)) return prev;
-                    return [alert, ...prev];
-                  });
-                }}
-                onOpenAlerts={() => {
-                  setIsAlertsOpen(true);
-                  setUnreadCount(0);
-                }}
-                onOpenBacktest={() => navigate('/backtest')}
-              />
+              <ErrorBoundary fallbackTitle="Live Market Analysis Temporarily Unavailable">
+                <MarketAnalysisPage
+                  instruments={instruments}
+                  syntheses={syntheses}
+                  highConfluenceAlerts={highConfluenceAlerts}
+                  mwBreakoutAlerts={mwBreakoutAlerts}
+                  onClearHighConfluenceAlerts={() => setHighConfluenceAlerts([])}
+                  onHighConfluenceAlertTriggered={(alert) => {
+                    setHighConfluenceAlerts((prev) => {
+                      if (prev.some((a) => a.id === alert.id)) return prev;
+                      return [alert, ...prev];
+                    });
+                  }}
+                  onOpenAlerts={() => {
+                    setIsAlertsOpen(true);
+                    setUnreadCount(0);
+                  }}
+                  onOpenBacktest={() => navigate('/backtest')}
+                  onRefreshAll={refreshAllAnalysis}
+                  isRefreshing={isLoading}
+                />
+              </ErrorBoundary>
             }
           />
 

@@ -25,7 +25,7 @@ export const WhatJustChangedPanel: React.FC<WhatJustChangedPanelProps> = ({
     );
   }
 
-  const isBullish = whatJustChanged?.event_type.includes('BULL') || latestEvent?.direction === 'BULLISH';
+  const isBullish = whatJustChanged?.event_type?.includes('BULL') || latestEvent?.direction === 'BULLISH';
   const badgeStyle = isBullish
     ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
     : 'bg-rose-50 text-rose-700 border-rose-300';
