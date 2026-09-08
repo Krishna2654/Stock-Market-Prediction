@@ -474,6 +474,12 @@ class PrecisionBreakoutDetector:
                 if high_diff < 0.40 * atr_val and low_diff < 0.40 * atr_val:
                     return "SIDEWAYS", "Sideways horizontal consolidation without directional trend"
 
+        # Structural progression indicators
+        is_bull_hh = len(prior_highs) >= 2 and prior_highs[-1].price > prior_highs[-2].price
+        is_bull_hl = len(prior_lows) >= 2 and prior_lows[-1].price > prior_lows[-2].price
+        is_bear_lh = len(prior_highs) >= 2 and prior_highs[-1].price < prior_highs[-2].price
+        is_bear_ll = len(prior_lows) >= 2 and prior_lows[-1].price < prior_lows[-2].price
+
         if is_p1_high:
             # Check extended 5-wave exhaustion
             if len(all_prior_highs) >= 3 and all(all_prior_highs[k].price > all_prior_highs[k-1].price for k in range(1, len(all_prior_highs))):
@@ -486,36 +492,52 @@ class PrecisionBreakoutDetector:
             # -------------------------------------------------------------------------
             # 1. CONTINUATION REJECTION (FIRST PRIORITY: PATTERN 4 BEARISH CONTINUATION)
             # -------------------------------------------------------------------------
-            is_bear_lh = len(prior_highs) >= 2 and prior_highs[-1].price < prior_highs[-2].price
-            is_bear_ll = len(prior_lows) >= 2 and prior_lows[-1].price < prior_lows[-2].price
-
             # Definite downtrend sequence: Lower Lows + Lower Highs
             if is_bear_ll and is_bear_lh:
                 return "BEARISH", "Point 1 is a relief bounce high in a confirmed bearish sequence (Pattern 4 continuation)"
 
-            # Lower Lows with High 1 lower than dominant preceding high
-            if is_bear_ll and prior_highs and point_1.price < max(h.price for h in prior_highs):
-                return "BEARISH", "Point 1 is a relief bounce high in a confirmed bearish sequence (Pattern 4 continuation)"
+            # Asymmetric Lower Lows: Downtrend established by Lower Lows into the trough
+            if is_bear_ll:
+                if prior_highs and point_1.price < max(h.price for h in prior_highs):
+                    return "BEARISH", "Point 1 is a relief bounce high in a confirmed bearish sequence (Pattern 4 continuation)"
+                if not is_bull_hl:
+                    return "BEARISH", "Point 1 is a relief bounce following a confirmed lower-low decline (Pattern 4 continuation)"
 
             # Preceding swing high exists and High 1 is forming a Lower High in a bearish sequence
             if len(prior_highs) >= 1 and point_1.price < prior_highs[-1].price and (is_bear_ll or (prior_lows and prior_lows[-1].price < prior_highs[-1].price)):
                 return "BEARISH", "Point 1 is a lower high in a confirmed bearish sequence (Pattern 4 continuation)"
 
+            # Lower Highs without bullish HL progression: High 1 is a relief bounce
+            if is_bear_lh and not is_bull_hl:
+                if prior_lows and point_1.price < max(h.price for h in prior_highs):
+                    return "BEARISH", "Point 1 is a relief bounce in a confirmed lower-high sequence (Pattern 4 continuation)"
+
             # -------------------------------------------------------------------------
             # 2. REVERSAL ACCEPTANCE (GENUINE BULLISH PRECEDING STRUCTURE + DISPLACEMENT)
             # -------------------------------------------------------------------------
-            is_bull_hl = len(prior_lows) >= 2 and prior_lows[-1].price > prior_lows[-2].price
-            is_bull_hh = len(prior_highs) >= 2 and prior_highs[-1].price > prior_highs[-2].price
-            h1_is_hh = len(prior_highs) >= 1 and point_1.price > prior_highs[-1].price
+            # Hard requirement: NO contradictory bearish trend evidence allowed to pass as bullish reversal
+            if is_bear_ll or is_bear_lh:
+                return "UNCLEAR", "Contradictory market structure: preceding bearish swings prevent bullish reversal confirmation"
 
+            h1_is_hh = len(prior_highs) >= 1 and point_1.price > prior_highs[-1].price
             recent_low = min(l.price for l in prior_lows) if prior_lows else None
             up_disp = (point_1.price - recent_low) if recent_low is not None else 0.0
 
-            has_bull_structure = (is_bull_hl and (is_bull_hh or h1_is_hh)) or (
-                len(prior_lows) >= 1 and h1_is_hh and (not prior_highs or len(prior_highs) < 2 or prior_highs[-1].price >= prior_highs[-2].price)
-            ) or (
-                len(all_prior_swings) == 1 and not all_prior_swings[0].is_high
+            # Form A: Multi-swing confirmed uptrend (HL + (HH or H1 > prior high))
+            form_a = is_bull_hl and (is_bull_hh or h1_is_hh)
+
+            # Form B: Asymmetric 1 Low + confirmed Higher Highs into H1
+            form_b = len(prior_lows) == 1 and is_bull_hh and h1_is_hh
+
+            # Form C: Dominant Low Ascent (Higher Lows or 1 single low trough with clean upward progression)
+            form_c = len(prior_lows) >= 1 and h1_is_hh and (
+                (len(prior_lows) >= 2 and is_bull_hl) or (len(prior_lows) == 1 and len(prior_highs) <= 1)
             )
+
+            # Form D: Single prior swing is a Low (trough of session/move)
+            form_d = len(all_prior_swings) == 1 and not all_prior_swings[0].is_high
+
+            has_bull_structure = form_a or form_b or form_c or form_d
 
             if has_bull_structure and up_disp >= min_disp:
                 return "BULLISH", f"Confirmed bullish sequence with upward displacement (+{up_disp:.2f} >= {min_disp:.2f})"
@@ -538,37 +560,52 @@ class PrecisionBreakoutDetector:
             # -------------------------------------------------------------------------
             # 1. CONTINUATION REJECTION (FIRST PRIORITY: PATTERN 2 BULLISH CONTINUATION)
             # -------------------------------------------------------------------------
-            is_bull_hh = len(prior_highs) >= 2 and prior_highs[-1].price > prior_highs[-2].price
-            is_bull_hl = len(prior_lows) >= 2 and prior_lows[-1].price > prior_lows[-2].price
-
             # Definite uptrend sequence: Higher Highs + Higher Lows
             if is_bull_hh and is_bull_hl:
                 return "BULLISH", "Point 1 is a pullback low in a confirmed bullish sequence (Pattern 2 continuation)"
 
-            # Higher Highs with Low 1 higher than dominant preceding base low
-            if is_bull_hh and prior_lows and point_1.price > min(l.price for l in prior_lows):
-                return "BULLISH", "Point 1 is a pullback low in a confirmed bullish sequence (Pattern 2 continuation)"
+            # Asymmetric Higher Highs: Uptrend established by Higher Highs into the peak
+            if is_bull_hh:
+                if prior_lows and point_1.price > min(l.price for l in prior_lows):
+                    return "BULLISH", "Point 1 is a pullback low in a confirmed bullish sequence (Pattern 2 continuation)"
+                if not is_bear_lh:
+                    return "BULLISH", "Point 1 is a deep pullback following a confirmed higher-high advance (Pattern 2 continuation)"
 
             # Preceding swing low exists and Low 1 is forming a Higher Low in a bullish sequence
             if len(prior_lows) >= 1 and point_1.price > prior_lows[-1].price and (is_bull_hh or (prior_highs and prior_highs[-1].price > prior_lows[-1].price)):
                 return "BULLISH", "Point 1 forms a higher low in a bullish sequence (Pattern 2 continuation)"
 
+            # Higher Lows without bearish LH progression: Low 1 is a pullback
+            if is_bull_hl and not is_bear_lh:
+                if prior_highs and point_1.price > min(l.price for l in prior_lows):
+                    return "BULLISH", "Point 1 is a pullback in a confirmed higher-low sequence (Pattern 2 continuation)"
+
             # -------------------------------------------------------------------------
             # 2. REVERSAL ACCEPTANCE (GENUINE BEARISH PRECEDING STRUCTURE + DISPLACEMENT)
             # -------------------------------------------------------------------------
-            is_bear_lh = len(prior_highs) >= 2 and prior_highs[-1].price < prior_highs[-2].price
-            is_bear_ll = len(prior_lows) >= 2 and prior_lows[-1].price < prior_lows[-2].price
-            l1_is_ll = len(prior_lows) >= 1 and point_1.price < prior_lows[-1].price
+            # Hard requirement: NO contradictory bullish trend evidence allowed to pass as bearish reversal
+            if is_bull_hh or is_bull_hl:
+                return "UNCLEAR", "Contradictory market structure: preceding bullish swings prevent bearish reversal confirmation"
 
+            l1_is_ll = len(prior_lows) >= 1 and point_1.price < prior_lows[-1].price
             recent_high = max(h.price for h in prior_highs) if prior_highs else None
             down_disp = (recent_high - point_1.price) if recent_high is not None else 0.0
 
-            # Structural progression: Lower Highs + Lower Lows (or Low 1 lower than preceding low)
-            has_bear_structure = (is_bear_lh and (is_bear_ll or l1_is_ll)) or (
-                len(prior_highs) >= 1 and l1_is_ll and (not prior_lows or len(prior_lows) < 2 or prior_highs[-1].price <= prior_highs[-2].price)
-            ) or (
-                len(all_prior_swings) == 1 and all_prior_swings[0].is_high
+            # Form A: Multi-swing confirmed downtrend (LH + (LL or L1 < prior low))
+            form_a = is_bear_lh and (is_bear_ll or l1_is_ll)
+
+            # Form B: Asymmetric 1 High + confirmed Lower Lows into L1
+            form_b = len(prior_highs) == 1 and is_bear_ll and l1_is_ll
+
+            # Form C: Dominant High Descent (Lower Highs or 1 single high peak with clean downward progression)
+            form_c = len(prior_highs) >= 1 and l1_is_ll and (
+                (len(prior_highs) >= 2 and is_bear_lh) or (len(prior_highs) == 1 and len(prior_lows) <= 1)
             )
+
+            # Form D: Single prior swing is a High (peak of session/move)
+            form_d = len(all_prior_swings) == 1 and all_prior_swings[0].is_high
+
+            has_bear_structure = form_a or form_b or form_c or form_d
 
             if has_bear_structure and down_disp >= min_disp:
                 return "BEARISH", f"Confirmed bearish sequence with downward displacement (-{down_disp:.2f} >= {min_disp:.2f})"

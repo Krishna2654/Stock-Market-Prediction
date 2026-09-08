@@ -302,3 +302,134 @@ def test_fast_path_and_macro_path_reversal_enforcement():
     )
     assert not is_valid_fast
     assert reason_fast == 'BULLISH_CONTINUATION_NOT_REVERSAL'
+
+
+def test_w_asymmetric_2hh_1l_deep_pullback_rejected():
+    """W Asymmetric: 2 HH + 1 prior low + deep pullback below prior low MUST NOT be accepted as BEARISH."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=0, price=100.0, timestamp='2026-08-25T10:00:00Z', is_high=True, type='HH', confirmed=True),
+        SwingPoint(index=5, price=95.0, timestamp='2026-08-25T10:05:00Z', is_high=False, type='HL', confirmed=True),
+        SwingPoint(index=10, price=110.0, timestamp='2026-08-25T10:10:00Z', is_high=True, type='HH', confirmed=True),
+    ]
+    p1 = SwingPoint(index=15, price=90.0, timestamp='2026-08-25T10:15:00Z', is_high=False, type='LL', confirmed=True)
+    candles = [Candle(timestamp=f'2026-08-25T10:{i:02d}:00Z', open=100, high=101, low=99, close=100, volume=1000) for i in range(25)]
+
+    regime, reason = PrecisionBreakoutDetector.classify_preceding_market_regime(
+        candles=candles, swings=swings, point_1=p1, atr_val=atr, timeframe='15M'
+    )
+    assert regime != 'BEARISH', f'Deep pullback in 2-HH uptrend must not be BEARISH: {reason}'
+    is_valid, v_reason = PrecisionBreakoutDetector._validate_reversal_context(
+        candles=candles, swings=swings, point_1=p1, pattern_type='W', atr_val=atr, timeframe='15M'
+    )
+    assert not is_valid, 'Deep pullback in 2-HH uptrend must not pass W reversal validation'
+
+
+def test_w_asymmetric_2hh_1l_normal_pullback_rejected():
+    """W Asymmetric: 2 HH + 1 prior low + normal bullish pullback MUST reject as continuation."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=0, price=100.0, timestamp='2026-08-25T10:00:00Z', is_high=True, type='HH', confirmed=True),
+        SwingPoint(index=5, price=95.0, timestamp='2026-08-25T10:05:00Z', is_high=False, type='HL', confirmed=True),
+        SwingPoint(index=10, price=110.0, timestamp='2026-08-25T10:10:00Z', is_high=True, type='HH', confirmed=True),
+    ]
+    p1 = SwingPoint(index=15, price=98.0, timestamp='2026-08-25T10:15:00Z', is_high=False, type='HL', confirmed=True)
+    candles = [Candle(timestamp=f'2026-08-25T10:{i:02d}:00Z', open=100, high=101, low=99, close=100, volume=1000) for i in range(25)]
+
+    regime, reason = PrecisionBreakoutDetector.classify_preceding_market_regime(
+        candles=candles, swings=swings, point_1=p1, atr_val=atr, timeframe='15M'
+    )
+    assert regime == 'BULLISH'
+    is_valid, v_reason = PrecisionBreakoutDetector._validate_reversal_context(
+        candles=candles, swings=swings, point_1=p1, pattern_type='W', atr_val=atr, timeframe='15M'
+    )
+    assert not is_valid
+    assert v_reason == 'BULLISH_CONTINUATION_NOT_REVERSAL'
+
+
+def test_w_asymmetric_1h_2ll_genuine_reversal_accepted():
+    """W Asymmetric: 1 High + 2 Lows making Lower Lows should be accepted as genuine bearish reversal."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=0, price=120.0, timestamp='2026-08-25T10:00:00Z', is_high=False, type='LL', confirmed=True),
+        SwingPoint(index=5, price=125.0, timestamp='2026-08-25T10:05:00Z', is_high=True, type='HH', confirmed=True),
+        SwingPoint(index=10, price=110.0, timestamp='2026-08-25T10:10:00Z', is_high=False, type='LL', confirmed=True),
+    ]
+    p1 = SwingPoint(index=15, price=100.0, timestamp='2026-08-25T10:15:00Z', is_high=False, type='LL', confirmed=True)
+    candles = [Candle(timestamp=f'2026-08-25T10:{i:02d}:00Z', open=100, high=101, low=99, close=100, volume=1000) for i in range(25)]
+
+    regime, reason = PrecisionBreakoutDetector.classify_preceding_market_regime(
+        candles=candles, swings=swings, point_1=p1, atr_val=atr, timeframe='15M'
+    )
+    assert regime == 'BEARISH'
+    is_valid, v_reason = PrecisionBreakoutDetector._validate_reversal_context(
+        candles=candles, swings=swings, point_1=p1, pattern_type='W', atr_val=atr, timeframe='15M'
+    )
+    assert is_valid
+    assert v_reason == 'OK'
+
+
+def test_m_asymmetric_2ll_1h_strong_rally_rejected():
+    """M Asymmetric: 2 LL + 1 prior high + strong rally above prior high MUST NOT be accepted as BULLISH."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=0, price=100.0, timestamp='2026-08-25T10:00:00Z', is_high=False, type='LL', confirmed=True),
+        SwingPoint(index=5, price=105.0, timestamp='2026-08-25T10:05:00Z', is_high=True, type='LH', confirmed=True),
+        SwingPoint(index=10, price=90.0, timestamp='2026-08-25T10:10:00Z', is_high=False, type='LL', confirmed=True),
+    ]
+    p1 = SwingPoint(index=15, price=110.0, timestamp='2026-08-25T10:15:00Z', is_high=True, type='HH', confirmed=True)
+    candles = [Candle(timestamp=f'2026-08-25T10:{i:02d}:00Z', open=100, high=101, low=99, close=100, volume=1000) for i in range(25)]
+
+    regime, reason = PrecisionBreakoutDetector.classify_preceding_market_regime(
+        candles=candles, swings=swings, point_1=p1, atr_val=atr, timeframe='15M'
+    )
+    assert regime != 'BULLISH', f'Strong rally in 2-LL downtrend must not be BULLISH: {reason}'
+    is_valid, v_reason = PrecisionBreakoutDetector._validate_reversal_context(
+        candles=candles, swings=swings, point_1=p1, pattern_type='M', atr_val=atr, timeframe='15M'
+    )
+    assert not is_valid, 'Strong rally in 2-LL downtrend must not pass M reversal validation'
+
+
+def test_m_asymmetric_2ll_1h_normal_relief_rally_rejected():
+    """M Asymmetric: 2 LL + 1 prior high + normal relief rally MUST reject as continuation."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=0, price=100.0, timestamp='2026-08-25T10:00:00Z', is_high=False, type='LL', confirmed=True),
+        SwingPoint(index=5, price=105.0, timestamp='2026-08-25T10:05:00Z', is_high=True, type='LH', confirmed=True),
+        SwingPoint(index=10, price=90.0, timestamp='2026-08-25T10:10:00Z', is_high=False, type='LL', confirmed=True),
+    ]
+    p1 = SwingPoint(index=15, price=98.0, timestamp='2026-08-25T10:15:00Z', is_high=True, type='LH', confirmed=True)
+    candles = [Candle(timestamp=f'2026-08-25T10:{i:02d}:00Z', open=100, high=101, low=99, close=100, volume=1000) for i in range(25)]
+
+    regime, reason = PrecisionBreakoutDetector.classify_preceding_market_regime(
+        candles=candles, swings=swings, point_1=p1, atr_val=atr, timeframe='15M'
+    )
+    assert regime == 'BEARISH'
+    is_valid, v_reason = PrecisionBreakoutDetector._validate_reversal_context(
+        candles=candles, swings=swings, point_1=p1, pattern_type='M', atr_val=atr, timeframe='15M'
+    )
+    assert not is_valid
+    assert v_reason == 'BEARISH_CONTINUATION_NOT_REVERSAL'
+
+
+def test_m_asymmetric_1l_2hh_genuine_reversal_accepted():
+    """M Asymmetric: 1 Low + 2 Highs making Higher Highs should be accepted as genuine bullish reversal."""
+    atr = 2.0
+    swings = [
+        SwingPoint(index=0, price=80.0, timestamp='2026-08-25T10:00:00Z', is_high=True, type='HH', confirmed=True),
+        SwingPoint(index=5, price=75.0, timestamp='2026-08-25T10:05:00Z', is_high=False, type='LL', confirmed=True),
+        SwingPoint(index=10, price=90.0, timestamp='2026-08-25T10:10:00Z', is_high=True, type='HH', confirmed=True),
+    ]
+    p1 = SwingPoint(index=15, price=100.0, timestamp='2026-08-25T10:15:00Z', is_high=True, type='HH', confirmed=True)
+    candles = [Candle(timestamp=f'2026-08-25T10:{i:02d}:00Z', open=100, high=101, low=99, close=100, volume=1000) for i in range(25)]
+
+    regime, reason = PrecisionBreakoutDetector.classify_preceding_market_regime(
+        candles=candles, swings=swings, point_1=p1, atr_val=atr, timeframe='15M'
+    )
+    assert regime == 'BULLISH'
+    is_valid, v_reason = PrecisionBreakoutDetector._validate_reversal_context(
+        candles=candles, swings=swings, point_1=p1, pattern_type='M', atr_val=atr, timeframe='15M'
+    )
+    assert is_valid
+    assert v_reason == 'OK'
+
