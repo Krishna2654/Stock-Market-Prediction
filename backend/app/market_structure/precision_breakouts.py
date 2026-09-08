@@ -389,17 +389,22 @@ class PrecisionBreakoutDetector:
     ) -> Tuple[str, str]:
         """
         Classifies the market regime strictly preceding Point 1 into:
-        - "BEARISH": Confirmed bearish structural sequence (LH/LL ordered swings or downward progression).
-        - "BULLISH": Confirmed bullish structural sequence (HH/HL ordered swings or upward progression).
+        - "BEARISH": Confirmed bearish structural sequence (LH/LL progression or downward impulse).
+        - "BULLISH": Confirmed bullish structural sequence (HH/HL progression or upward impulse).
         - "SIDEWAYS": Range-bound, oscillating, or tight consolidation without direction.
-        - "MIXED_UNCLEAR": Conflicting swings or insufficient data to establish a structural regime.
+        - "UNCLEAR": Conflicting swings or insufficient structural data to establish a regime.
         """
         tf_clean = (timeframe or "1H").upper()
         tf_multipliers = {
+            "1M": 0.0010,
+            "3M": 0.0012,
             "5M": 0.0015,  # 0.15% minimum displacement floor for 5M intraday
             "15M": 0.003,  # 0.30% minimum displacement floor for 15M
+            "30M": 0.0045, # 0.45% minimum displacement floor for 30M
             "1H": 0.006,   # 0.60% minimum displacement floor for 1H
-            "4H": 0.010    # 1.00% minimum displacement floor for 4H/Daily
+            "2H": 0.008,
+            "4H": 0.010,   # 1.00% minimum displacement floor for 4H/Daily
+            "1D": 0.015
         }
         pct = tf_multipliers.get(tf_clean, 0.006)
         min_disp = max(0.80 * atr_val, point_1.price * pct)
@@ -407,97 +412,172 @@ class PrecisionBreakoutDetector:
         all_prior_swings = [s for s in swings if getattr(s, "confirmed", True) and s.index < point_1.index]
         all_prior_highs = [s for s in all_prior_swings if s.is_high]
         all_prior_lows = [s for s in all_prior_swings if not s.is_high]
-        prior_swings = all_prior_swings[-4:]
-        prior_highs = [s for s in prior_swings if s.is_high]
-        prior_lows = [s for s in prior_swings if not s.is_high]
 
-        is_p1_high = point_1.is_high
         p1_idx = point_1.index
         start_idx = max(0, p1_idx - 20)
         pre_c = candles[start_idx:p1_idx]
+        is_p1_high = point_1.is_high
 
+        # 0 Prior Swings Boundary / Synthetic Mock Handling
         if len(all_prior_swings) == 0:
-            return "BULLISH" if is_p1_high else "BEARISH", "Default preceding regime for boundary/synthetic mock"
+            if len(pre_c) >= 2:
+                p1_date = point_1.timestamp.split("T")[0] if "T" in str(point_1.timestamp) else str(point_1.timestamp)[:10]
+                same_sess_c = [c for c in pre_c if (c.timestamp.split("T")[0] if "T" in str(c.timestamp) else str(c.timestamp)[:10]) == p1_date]
+                eval_c = same_sess_c if len(same_sess_c) >= 2 else pre_c
+                
+                if is_p1_high:
+                    cand_disp = point_1.price - min(c.low for c in eval_c)
+                    net_disp = eval_c[-1].close - eval_c[0].open
+                    if cand_disp >= min_disp and net_disp >= 0:
+                        return "BULLISH", f"Candle upward displacement into High 1 (+{cand_disp:.2f} >= {min_disp:.2f})"
+                    elif min(c.low for c in eval_c) - point_1.price >= min_disp:
+                        return "BEARISH", "Candle downward displacement into High 1"
+                    else:
+                        return "SIDEWAYS", "Insufficient directional displacement into High 1"
+                else:
+                    cand_disp = max(c.high for c in eval_c) - point_1.price
+                    net_disp = eval_c[-1].close - eval_c[0].open
+                    if cand_disp >= min_disp and net_disp <= 0:
+                        return "BEARISH", f"Candle downward displacement into Low 1 (-{cand_disp:.2f} >= {min_disp:.2f})"
+                    elif point_1.price - max(c.high for c in eval_c) >= min_disp:
+                        return "BULLISH", "Candle upward displacement into Low 1"
+                    else:
+                        return "SIDEWAYS", "Insufficient directional displacement into Low 1"
+            return "UNCLEAR", "INSUFFICIENT_PREVIOUS_STRUCTURE_NOT_REVERSAL: No prior swings or candles before Point 1"
+
+        # Session boundary isolation for intraday timeframes (1M, 3M, 5M, 15M, 30M)
+        p1_date = point_1.timestamp.split("T")[0] if "T" in str(point_1.timestamp) else str(point_1.timestamp)[:10]
+        if tf_clean in ["1M", "3M", "5M", "15M", "30M"]:
+            same_session_swings = [
+                s for s in all_prior_swings
+                if (s.timestamp.split("T")[0] if "T" in str(s.timestamp) else str(s.timestamp)[:10]) == p1_date
+            ]
+            if len(same_session_swings) >= 2:
+                eval_swings = same_session_swings[-5:]
+            else:
+                eval_swings = all_prior_swings[-5:]
+        else:
+            eval_swings = all_prior_swings[-5:]
+
+        prior_highs = [s for s in eval_swings if s.is_high]
+        prior_lows = [s for s in eval_swings if not s.is_high]
+
+        # Sideways / Range-Bound Compression Check (Evaluated before directional trend checks)
+        if prior_highs and prior_lows:
+            struct_range = max(h.price for h in prior_highs) - min(l.price for l in prior_lows)
+            if struct_range < min_disp:
+                return "SIDEWAYS", f"Consolidation / range-bound market leading into Point 1 (range span {struct_range:.2f} < min disp {min_disp:.2f})"
+
+            if len(prior_highs) >= 2 and len(prior_lows) >= 2:
+                high_diff = abs(prior_highs[-1].price - prior_highs[-2].price)
+                low_diff = abs(prior_lows[-1].price - prior_lows[-2].price)
+                if high_diff < 0.40 * atr_val and low_diff < 0.40 * atr_val:
+                    return "SIDEWAYS", "Sideways horizontal consolidation without directional trend"
 
         if is_p1_high:
-            # Check extended 5-wave exhaustion (3 or more prior higher highs)
+            # Check extended 5-wave exhaustion
             if len(all_prior_highs) >= 3 and all(all_prior_highs[k].price > all_prior_highs[k-1].price for k in range(1, len(all_prior_highs))):
                 return "UNCLEAR", "Pattern forming after extended 5-wave trending sequence is rejected"
 
-            # Evaluating preceding trend leading UP into High 1 (for M Pattern Reversal)
-            # 1. Structural Bearish Downtrend Check (LH/LL series -> Pattern 4 Continuation)
+            # Single-pivot boundary check (Section 5: Do not use single pivot as proof of reversal)
+            if len(all_prior_swings) == 1 and all_prior_swings[0].is_high:
+                return "UNCLEAR", "INSUFFICIENT_PREVIOUS_STRUCTURE_NOT_REVERSAL: Single prior high without swing structure cannot prove reversal"
+
+            # -------------------------------------------------------------------------
+            # 1. CONTINUATION REJECTION (FIRST PRIORITY: PATTERN 4 BEARISH CONTINUATION)
+            # -------------------------------------------------------------------------
             is_bear_lh = len(prior_highs) >= 2 and prior_highs[-1].price < prior_highs[-2].price
             is_bear_ll = len(prior_lows) >= 2 and prior_lows[-1].price < prior_lows[-2].price
+
+            # Definite downtrend sequence: Lower Lows + Lower Highs
+            if is_bear_ll and is_bear_lh:
+                return "BEARISH", "Point 1 is a relief bounce high in a confirmed bearish sequence (Pattern 4 continuation)"
+
+            # Lower Lows with High 1 lower than dominant preceding high
             if is_bear_ll and prior_highs and point_1.price < max(h.price for h in prior_highs):
                 return "BEARISH", "Point 1 is a relief bounce high in a confirmed bearish sequence (Pattern 4 continuation)"
-            if len(prior_highs) >= 1 and point_1.price < prior_highs[-1].price:
+
+            # Preceding swing high exists and High 1 is forming a Lower High in a bearish sequence
+            if len(prior_highs) >= 1 and point_1.price < prior_highs[-1].price and (is_bear_ll or (prior_lows and prior_lows[-1].price < prior_highs[-1].price)):
                 return "BEARISH", "Point 1 is a lower high in a confirmed bearish sequence (Pattern 4 continuation)"
 
-            # 2. Check HH / HL swing sequence (Confirmed Bullish Trend into H1)
-            if len(prior_highs) >= 1 and point_1.price > prior_highs[-1].price:
-                return "BULLISH", "High 1 forms a higher high relative to preceding swing high"
+            # -------------------------------------------------------------------------
+            # 2. REVERSAL ACCEPTANCE (GENUINE BULLISH PRECEDING STRUCTURE + DISPLACEMENT)
+            # -------------------------------------------------------------------------
+            is_bull_hl = len(prior_lows) >= 2 and prior_lows[-1].price > prior_lows[-2].price
+            is_bull_hh = len(prior_highs) >= 2 and prior_highs[-1].price > prior_highs[-2].price
+            h1_is_hh = len(prior_highs) >= 1 and point_1.price > prior_highs[-1].price
 
-            # 3. Swing-based check: Upward displacement from preceding low to P1
-            if prior_lows:
-                recent_low = min(l.price for l in prior_lows)
-                up_disp = point_1.price - recent_low
-                if up_disp >= min_disp:
-                    return "BULLISH", f"Strong upward displacement into High 1 (+{up_disp:.2f} >= {min_disp:.2f})"
+            recent_low = min(l.price for l in prior_lows) if prior_lows else None
+            up_disp = (point_1.price - recent_low) if recent_low is not None else 0.0
 
-            # 4. Candle fallback leading into P1
-            p1_idx = point_1.index
-            start_idx = max(0, p1_idx - 20)
-            pre_c = candles[start_idx:p1_idx]
-            if len(pre_c) >= 4:
-                net_c = pre_c[-1].close - pre_c[0].close
-                if net_c >= min_disp:
-                    return "BULLISH", f"Candle upward displacement into High 1 (+{net_c:.2f})"
-                elif net_c <= -min_disp:
-                    return "BEARISH", f"Candle downward displacement into High 1 (-{-net_c:.2f})"
-                else:
-                    return "SIDEWAYS", "Consolidation / range-bound market leading into High 1"
+            has_bull_structure = (is_bull_hl and (is_bull_hh or h1_is_hh)) or (
+                len(prior_lows) >= 1 and h1_is_hh and (not prior_highs or len(prior_highs) < 2 or prior_highs[-1].price >= prior_highs[-2].price)
+            ) or (
+                len(all_prior_swings) == 1 and not all_prior_swings[0].is_high
+            )
 
-            return "SIDEWAYS", "Insufficient displacement into High 1"
+            if has_bull_structure and up_disp >= min_disp:
+                return "BULLISH", f"Confirmed bullish sequence with upward displacement (+{up_disp:.2f} >= {min_disp:.2f})"
+
+            # Displacement alone without bullish structural progression cannot prove reversal
+            if up_disp >= min_disp and not has_bull_structure:
+                return "SIDEWAYS", "Displacement alone without confirmed bullish structure cannot prove reversal"
+
+            return "SIDEWAYS", "Insufficient bullish structure and displacement leading into High 1"
 
         else:
-            # Check extended 5-wave exhaustion (3 or more prior lower lows)
+            # Check extended 5-wave exhaustion
             if len(all_prior_lows) >= 3 and all(all_prior_lows[k].price < all_prior_lows[k-1].price for k in range(1, len(all_prior_lows))):
                 return "UNCLEAR", "Pattern forming after extended 5-wave trending sequence is rejected"
 
-            # Evaluating preceding trend leading DOWN into Low 1 (for W Pattern Reversal)
-            # 1. Structural Bullish Uptrend Check (HH/HL series -> Pattern 2 Continuation)
+            # Single-pivot boundary check (Section 5: Do not use single pivot as proof of reversal)
+            if len(all_prior_swings) == 1 and not all_prior_swings[0].is_high:
+                return "UNCLEAR", "INSUFFICIENT_PREVIOUS_STRUCTURE_NOT_REVERSAL: Single prior low without swing structure cannot prove reversal"
+
+            # -------------------------------------------------------------------------
+            # 1. CONTINUATION REJECTION (FIRST PRIORITY: PATTERN 2 BULLISH CONTINUATION)
+            # -------------------------------------------------------------------------
             is_bull_hh = len(prior_highs) >= 2 and prior_highs[-1].price > prior_highs[-2].price
             is_bull_hl = len(prior_lows) >= 2 and prior_lows[-1].price > prior_lows[-2].price
+
+            # Definite uptrend sequence: Higher Highs + Higher Lows
+            if is_bull_hh and is_bull_hl:
+                return "BULLISH", "Point 1 is a pullback low in a confirmed bullish sequence (Pattern 2 continuation)"
+
+            # Higher Highs with Low 1 higher than dominant preceding base low
             if is_bull_hh and prior_lows and point_1.price > min(l.price for l in prior_lows):
                 return "BULLISH", "Point 1 is a pullback low in a confirmed bullish sequence (Pattern 2 continuation)"
-            if len(prior_lows) >= 1 and point_1.price > prior_lows[-1].price:
-                return "BULLISH", "Point 1 is a higher low in a confirmed bullish sequence (Pattern 2 continuation)"
 
-            # 2. Check LL / LH swing sequence (Confirmed Bearish Trend into L1)
-            if len(prior_lows) >= 1 and point_1.price < prior_lows[-1].price:
-                return "BEARISH", "Low 1 forms a lower low relative to preceding swing low"
+            # Preceding swing low exists and Low 1 is forming a Higher Low in a bullish sequence
+            if len(prior_lows) >= 1 and point_1.price > prior_lows[-1].price and (is_bull_hh or (prior_highs and prior_highs[-1].price > prior_lows[-1].price)):
+                return "BULLISH", "Point 1 forms a higher low in a bullish sequence (Pattern 2 continuation)"
 
-            # 3. Swing-based check: Downward displacement from preceding high to P1
-            if prior_highs:
-                recent_high = max(h.price for h in prior_highs)
-                down_disp = recent_high - point_1.price
-                if down_disp >= min_disp:
-                    return "BEARISH", f"Strong downward displacement into Low 1 (-{down_disp:.2f} >= {min_disp:.2f})"
+            # -------------------------------------------------------------------------
+            # 2. REVERSAL ACCEPTANCE (GENUINE BEARISH PRECEDING STRUCTURE + DISPLACEMENT)
+            # -------------------------------------------------------------------------
+            is_bear_lh = len(prior_highs) >= 2 and prior_highs[-1].price < prior_highs[-2].price
+            is_bear_ll = len(prior_lows) >= 2 and prior_lows[-1].price < prior_lows[-2].price
+            l1_is_ll = len(prior_lows) >= 1 and point_1.price < prior_lows[-1].price
 
-            # 4. Candle fallback leading into P1
-            p1_idx = point_1.index
-            start_idx = max(0, p1_idx - 20)
-            pre_c = candles[start_idx:p1_idx]
-            if len(pre_c) >= 4:
-                net_c = pre_c[-1].close - pre_c[0].close
-                if net_c <= -min_disp:
-                    return "BEARISH", f"Candle downward displacement into Low 1 (-{-net_c:.2f})"
-                elif net_c >= min_disp:
-                    return "BULLISH", f"Candle upward displacement into Low 1 (+{net_c:.2f})"
-                else:
-                    return "SIDEWAYS", "Consolidation / range-bound market leading into Low 1"
+            recent_high = max(h.price for h in prior_highs) if prior_highs else None
+            down_disp = (recent_high - point_1.price) if recent_high is not None else 0.0
 
-            return "SIDEWAYS", "Insufficient displacement into Low 1"
+            # Structural progression: Lower Highs + Lower Lows (or Low 1 lower than preceding low)
+            has_bear_structure = (is_bear_lh and (is_bear_ll or l1_is_ll)) or (
+                len(prior_highs) >= 1 and l1_is_ll and (not prior_lows or len(prior_lows) < 2 or prior_highs[-1].price <= prior_highs[-2].price)
+            ) or (
+                len(all_prior_swings) == 1 and all_prior_swings[0].is_high
+            )
+
+            if has_bear_structure and down_disp >= min_disp:
+                return "BEARISH", f"Confirmed bearish sequence with downward displacement (-{down_disp:.2f} >= {min_disp:.2f})"
+
+            # Displacement alone without bearish structural progression cannot prove reversal
+            if down_disp >= min_disp and not has_bear_structure:
+                return "SIDEWAYS", "Displacement alone without confirmed bearish structure cannot prove reversal"
+
+            return "SIDEWAYS", "Insufficient bearish structure and displacement leading into Low 1"
 
     @classmethod
     def _validate_reversal_context(
@@ -514,8 +594,8 @@ class PrecisionBreakoutDetector:
         Structural Reversal Validator for W and M patterns.
         
         Evaluates the preceding market regime:
-        - W pattern requires BEARISH regime (rejects BULLISH continuation, SIDEWAYS, or MIXED_UNCLEAR).
-        - M pattern requires BULLISH regime (rejects BEARISH continuation, SIDEWAYS, or MIXED_UNCLEAR).
+        - W pattern requires BEARISH regime (rejects BULLISH continuation, SIDEWAYS, or UNCLEAR).
+        - M pattern requires BULLISH regime (rejects BEARISH continuation, SIDEWAYS, or UNCLEAR).
         """
         regime, reason = cls.classify_preceding_market_regime(
             candles=candles,
