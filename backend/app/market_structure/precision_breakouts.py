@@ -1880,6 +1880,10 @@ class PrecisionBreakoutDetector:
                                             atr_val=atr_val,
                                             sl_atr_buffer=0.15
                                         )
+                                        fast_pat.target_analysis = target_analysis
+                                        fast_pat.target_1 = round(target_analysis.measured_target, 2)
+                                        fast_pat.target_2 = round(target_analysis.target_2, 2) if target_analysis.target_2 else None
+                                        fast_pat.stop_loss = round(target_analysis.invalidation_level, 2)
                                         
                                         events.append(StructureBreakEvent(
                                             id=f"{symbol}_{timeframe}_W_PATTERN_BREAKOUT_{c_brk.timestamp}_{round(c_neck.high, 1)}",
@@ -2047,6 +2051,10 @@ class PrecisionBreakoutDetector:
                                             atr_val=atr_val,
                                             sl_atr_buffer=0.15
                                         )
+                                        fast_pat.target_analysis = target_analysis
+                                        fast_pat.target_1 = round(target_analysis.measured_target, 2)
+                                        fast_pat.target_2 = round(target_analysis.target_2, 2) if target_analysis.target_2 else None
+                                        fast_pat.stop_loss = round(target_analysis.invalidation_level, 2)
                                         
                                         events.append(StructureBreakEvent(
                                             id=f"{symbol}_{timeframe}_M_PATTERN_BREAKOUT_{c_brk.timestamp}_{round(c_neck.low, 1)}",

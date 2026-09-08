@@ -97,7 +97,7 @@ class MWBreakoutAlertEngine:
             return False  # Terminal outcomes are immutable
 
         t2_val = alert.target_2 if alert.target_2 is not None else (
-            round(alert.neckline_price + 2.0 * alert.pattern_height, 2) if alert.pattern_type == "W" else round(alert.neckline_price - 2.0 * alert.pattern_height, 2)
+            round(alert.neckline_price + 1.618 * alert.pattern_height, 2) if alert.pattern_type == "W" else round(alert.neckline_price - 1.618 * alert.pattern_height, 2)
         )
         t1_val = alert.measured_target
         sl_val = alert.invalidation_level
@@ -221,7 +221,9 @@ class MWBreakoutAlertEngine:
                 pat.neckline_price + pat.pattern_height if is_w else pat.neckline_price - pat.pattern_height
             )
             target_2 = t_analysis.target_2 if (t_analysis and t_analysis.target_2) else (
-                pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height
+                pat.target_2 if getattr(pat, "target_2", None) is not None else (
+                    round(pat.neckline_price + 1.618 * pat.pattern_height, 2) if is_w else round(pat.neckline_price - 1.618 * pat.pattern_height, 2)
+                )
             )
             nearest_sup = t_analysis.nearest_obstacle if not is_w and t_analysis else None
             nearest_res = t_analysis.nearest_obstacle if is_w and t_analysis else None
@@ -473,7 +475,9 @@ class MWBreakoutAlertEngine:
                         pat.neckline_price + pat.pattern_height if is_w else pat.neckline_price - pat.pattern_height
                     )
                     target_2 = t_analysis.target_2 if (t_analysis and t_analysis.target_2) else (
-                        pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height
+                        pat.target_2 if getattr(pat, "target_2", None) is not None else (
+                            round(pat.neckline_price + 1.618 * pat.pattern_height, 2) if is_w else round(pat.neckline_price - 1.618 * pat.pattern_height, 2)
+                        )
                     )
                     nearest_sup = t_analysis.nearest_obstacle if not is_w and t_analysis else None
                     nearest_res = t_analysis.nearest_obstacle if is_w and t_analysis else None
@@ -507,7 +511,7 @@ class MWBreakoutAlertEngine:
                         volume=0.0,
                         relative_volume=round(b_vol, 2),
                         measured_target=round(measured_target, 2),
-                        target_2=round(target_2, 2) if target_2 else round(pat.neckline_price + 2.0 * pat.pattern_height if is_w else pat.neckline_price - 2.0 * pat.pattern_height, 2),
+                        target_2=round(target_2, 2) if target_2 else round(pat.neckline_price + 1.618 * pat.pattern_height if is_w else pat.neckline_price - 1.618 * pat.pattern_height, 2),
                         nearest_support=round(nearest_sup, 2) if nearest_sup else None,
                         nearest_resistance=round(nearest_res, 2) if nearest_res else None,
                         invalidation_level=round(inval_level, 2),
@@ -584,7 +588,7 @@ class MWBreakoutAlertEngine:
                 continue
 
             t2_val = alert.target_2 if alert.target_2 is not None else (
-                round(alert.neckline_price + 2.0 * alert.pattern_height, 2) if alert.pattern_type == "W" else round(alert.neckline_price - 2.0 * alert.pattern_height, 2)
+                round(alert.neckline_price + 1.618 * alert.pattern_height, 2) if alert.pattern_type == "W" else round(alert.neckline_price - 1.618 * alert.pattern_height, 2)
             )
             t1_val = alert.measured_target
             sl_val = alert.invalidation_level

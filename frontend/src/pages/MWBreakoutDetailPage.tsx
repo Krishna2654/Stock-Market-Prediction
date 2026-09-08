@@ -420,7 +420,7 @@ export const MWBreakoutDetailPage: React.FC = () => {
 
   const normStatus = getNormalizedStatus(alert.status);
   const target2Val = alert.target_2 != null ? alert.target_2 : (
-    isW ? alert.neckline_price + 2.0 * alert.pattern_height : alert.neckline_price - 2.0 * alert.pattern_height
+    isW ? alert.neckline_price + 1.618 * alert.pattern_height : alert.neckline_price - 1.618 * alert.pattern_height
   );
 
   return (

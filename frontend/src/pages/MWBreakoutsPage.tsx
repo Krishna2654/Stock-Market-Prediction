@@ -69,10 +69,11 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
     }
   };
 
-  // Reset page to 1 when filters change
-  useEffect(() => {
+  // Helper to update any filter and immediately reset to page 1
+  const updateFilter = (setter: (val: any) => void, val: any) => {
+    setter(val);
     setPage(1);
-  }, [patternTypeFilter, timeframeFilter, statusFilter, dateFilter, searchQuery]);
+  };
 
   // Fetch Server-Side Paginated Page Data
   const fetchPage = async () => {
@@ -113,17 +114,14 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
     }
   };
 
-  const latestHeroAlert = page === 1 && paginatedAlerts.length > 0 ? paginatedAlerts[0] : null;
-  const historyAlerts = page === 1 ? paginatedAlerts.slice(1) : paginatedAlerts;
-
   // Handle Trigger Test Breakouts
   const handleTestTrigger = async (type: 'W' | 'M') => {
     setIsLoading(true);
     try {
       await api.triggerTestMWBreakout(type);
       onRefresh();
-      loadStats();
-      fetchPage();
+      await loadStats();
+      await fetchPage();
     } catch (err) {
       console.error('Test breakout error:', err);
     } finally {
@@ -131,6 +129,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
     }
   };
 
+  // Sliding Window Pagination Controls: e.g. ← Previous 1 2 3 4 5 ... 22 Next →
   const renderPaginationControls = () => {
     if (totalCount === 0) return null;
     const startItem = (page - 1) * limit + 1;
@@ -140,13 +139,13 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
     if (totalPages <= 7) {
       for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
-      pages.push(1);
-      if (page > 3) pages.push('...');
-      const start = Math.max(2, page - 1);
-      const end = Math.min(totalPages - 1, page + 1);
-      for (let i = start; i <= end; i++) pages.push(i);
-      if (page < totalPages - 2) pages.push('...');
-      pages.push(totalPages);
+      if (page <= 4) {
+        pages.push(1, 2, 3, 4, 5, '...', totalPages);
+      } else if (page >= totalPages - 3) {
+        pages.push(1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+      } else {
+        pages.push(1, '...', page - 1, page, page + 1, '...', totalPages);
+      }
     }
 
     return (
@@ -237,6 +236,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               }
               onRefresh();
               await loadStats();
+              await fetchPage();
               setIsLoading(false);
             }}
             disabled={isLoading}
@@ -343,7 +343,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
           {/* Pattern Type Toggle: [ ALL ] [ W ] [ M ] */}
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
-              onClick={() => setPatternTypeFilter('ALL')}
+              onClick={() => updateFilter(setPatternTypeFilter, 'ALL')}
               className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 patternTypeFilter === 'ALL'
                   ? 'bg-white text-slate-900 shadow-xs'
@@ -353,7 +353,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               ALL
             </button>
             <button
-              onClick={() => setPatternTypeFilter('W')}
+              onClick={() => updateFilter(setPatternTypeFilter, 'W')}
               className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 patternTypeFilter === 'W'
                   ? 'bg-emerald-600 text-white shadow-xs'
@@ -363,7 +363,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               🟢 W BREAKOUTS
             </button>
             <button
-              onClick={() => setPatternTypeFilter('M')}
+              onClick={() => updateFilter(setPatternTypeFilter, 'M')}
               className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 patternTypeFilter === 'M'
                   ? 'bg-rose-600 text-white shadow-xs'
@@ -379,7 +379,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <label className="text-xs font-bold text-slate-600">Timeframe:</label>
             <select
               value={timeframeFilter}
-              onChange={(e) => setTimeframeFilter(e.target.value)}
+              onChange={(e) => updateFilter(setTimeframeFilter, e.target.value)}
               className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
             >
               <option value="ALL">All Timeframes</option>
@@ -401,7 +401,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             ].map((st) => (
               <button
                 key={st.id}
-                onClick={() => setStatusFilter(st.id)}
+                onClick={() => updateFilter(setStatusFilter, st.id)}
                 className={`min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   statusFilter === st.id
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -428,7 +428,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             ].map((p) => (
               <button
                 key={p.key}
-                onClick={() => setDateFilter(p.key as any)}
+                onClick={() => updateFilter(setDateFilter, p.key as any)}
                 className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   dateFilter === p.key
                     ? 'bg-blue-600 text-white shadow-2xs font-bold'
@@ -447,7 +447,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               type="text"
               placeholder="Search symbol (e.g. NIFTY, BANK NIFTY)..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => updateFilter(setSearchQuery, e.target.value)}
               className="w-full min-h-[40px] pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
@@ -504,38 +504,29 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
           {/* Top Pagination Controls */}
           {renderPaginationControls()}
 
-          {/* LATEST CONFIRMED BREAKOUT (Hero Section on Page 1) */}
-          {latestHeroAlert && (
-            <div className="space-y-3">
+          {/* CONFIRMED BREAKOUTS GRID (Displaying all page items without slicing) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-900 uppercase tracking-wider">
-                <Sparkles className="h-4 w-4 text-amber-500" />
-                <span>LATEST CONFIRMED BREAKOUT</span>
+                <Clock className="h-4 w-4 text-blue-600" />
+                <span>CONFIRMED BREAKOUTS</span>
               </div>
-              <MWBreakoutCard alert={latestHeroAlert} isHero={true} />
-            </div>
-          )}
-
-          {/* BREAKOUT HISTORY GRID */}
-          {historyAlerts.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  <Clock className="h-4 w-4 text-blue-600" />
-                  <span>BREAKOUT HISTORY</span>
-                </div>
-                <div className="text-xs font-medium text-slate-500">
-                  Page {page} of {totalPages}
-                </div>
-              </div>
-
-              {/* 3 columns on Desktop, 2 on Tablet, 1 on Mobile */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {historyAlerts.map((alert) => (
-                  <MWBreakoutCard key={alert.alert_id} alert={alert} isHero={false} />
-                ))}
+              <div className="text-xs font-medium text-slate-500">
+                Page {page} of {totalPages}
               </div>
             </div>
-          )}
+
+            {/* 3 columns on Desktop, 2 on Tablet, 1 on Mobile */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {paginatedAlerts.map((alert, idx) => (
+                <MWBreakoutCard
+                  key={alert.alert_id}
+                  alert={alert}
+                  isHero={page === 1 && idx === 0}
+                />
+              ))}
+            </div>
+          </div>
 
           {/* Bottom Pagination Controls */}
           {renderPaginationControls()}
