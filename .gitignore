@@ -15,3 +15,6 @@ frontend/dist/
 .vscode/
 .DS_Store
 Thumbs.db
+
+.market-data-cache/
+.pytest-run-*/

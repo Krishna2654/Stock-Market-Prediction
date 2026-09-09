@@ -908,7 +908,7 @@ class MWBreakoutAlertEngine:
                 continue
             try:
                 mtf_candles = await provider.get_multi_timeframe_data(
-                    inst.symbol, inst.ticker, ["4H", "1H", "15M", "5M"], limit=250
+                    inst.symbol, inst.ticker, ["4H", "1H", "15M", "5M"], limit=600
                 )
                 synthesis = MultiTimeframeAnalyzer.synthesize(
                     symbol=inst.symbol,
