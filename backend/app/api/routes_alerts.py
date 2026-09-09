@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional, Union
 from datetime import datetime, timezone
-from app.models.schemas import AlertRule, AlertNotification, HighConfluenceAlert, MWBreakoutAlert, PaginatedMWBreakoutsResponse, TrendlineShortlistCandidate, WMPatternStructure, MultiTimeframeSynthesis
+from app.models.schemas import AlertRule, AlertNotification, HighConfluenceAlert, MWBreakoutAlert, PaginatedMWBreakoutsResponse, PaginatedStructureNotificationsResponse, TrendlineShortlistCandidate, WMPatternStructure, MultiTimeframeSynthesis
 from app.alerts.engine import alert_engine
 from app.alerts.high_confluence_engine import high_confluence_alert_engine
 from app.alerts.mw_breakout_engine import mw_breakout_engine
@@ -35,14 +35,44 @@ def delete_alert_rule(rule_id: str):
         raise HTTPException(status_code=404, detail="Alert rule not found")
     return {"message": f"Rule {rule_id} removed"}
 
-@router.get("/notifications", response_model=List[AlertNotification])
-def get_notifications(limit: int = 50):
+@router.get("/notifications", response_model=Union[PaginatedStructureNotificationsResponse, List[AlertNotification]])
+async def get_notifications(
+    symbol: Optional[str] = Query(None, description="Filter by symbol"),
+    timeframe: Optional[str] = Query(None, description="Filter by timeframe"),
+    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    touch_class: Optional[str] = Query(None, description="Filter by 2-TOUCH or 3-TOUCH"),
+    page: Optional[int] = Query(None, description="Page number for pagination"),
+    limit: int = Query(50, description="Page size limit"),
+):
+    if page is not None:
+        items, total, total_pages, has_next, has_prev = await alert_engine.get_paginated_notifications(
+            symbol=symbol,
+            timeframe=timeframe,
+            event_type=event_type,
+            touch_class=touch_class,
+            page=page,
+            limit=limit,
+        )
+        return PaginatedStructureNotificationsResponse(
+            items=items,
+            page=page,
+            limit=limit,
+            total=total,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_previous=has_prev,
+        )
     return alert_engine.get_notifications(limit=limit)
 
 @router.post("/clear")
 def clear_notifications():
     alert_engine.clear_notifications()
     return {"message": "Notifications cleared"}
+
+@router.post("/read-all")
+def mark_all_notifications_read():
+    count = alert_engine.mark_all_read()
+    return {"message": "All notifications marked as read", "count": count}
 
 @router.post("/test", response_model=AlertNotification)
 async def trigger_test_alert():

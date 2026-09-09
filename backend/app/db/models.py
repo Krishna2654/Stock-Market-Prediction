@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from sqlalchemy import (
     Boolean,
@@ -11,7 +12,7 @@ from sqlalchemy import (
 )
 
 from app.db.database import Base
-from app.models.schemas import MWBreakoutAlert
+from app.models.schemas import AlertNotification, MWBreakoutAlert
 
 
 class MWBreakoutAlertModel(Base):
@@ -164,4 +165,75 @@ class MWBreakoutAlertModel(Base):
 
     def to_dict(self) -> Dict[str, Any]:
         """Dictionary representation of all stored fields."""
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+
+class StructureNotificationModel(Base):
+    """
+    Persistent SQLAlchemy representation of structure break / trendline notifications.
+    Ensures notifications survive backend restarts and provide an immutable audit trail.
+    Enforces uniqueness at database level on (symbol, timeframe, event_type, timestamp, direction).
+    """
+    __tablename__ = "structure_notifications"
+
+    id = Column(String, primary_key=True, index=True)
+    timestamp = Column(String, nullable=False, index=True)  # Breakout candle timestamp
+    symbol = Column(String, nullable=False, index=True)
+    timeframe = Column(String, nullable=False, index=True)
+    event_type = Column(String, nullable=False, index=True)
+    direction = Column(String, nullable=True, index=True)
+    touch_class = Column(String, nullable=True, index=True)  # "2-TOUCH", "3-TOUCH"
+    message = Column(String, nullable=False)
+    price = Column(Float, nullable=False)
+    level = Column(Float, nullable=False)
+    evidence_score = Column(Integer, nullable=False)
+    volume_confirmed = Column(Boolean, default=True)
+    htf_alignment = Column(String, nullable=False)
+    action_line_slope = Column(Float, nullable=True)
+    action_line_intercept = Column(Float, nullable=True)
+    safety_line_type = Column(String, nullable=True)
+    safety_line_touches = Column(Integer, nullable=True)
+    read = Column(Boolean, default=False)
+    created_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "symbol", "timeframe", "event_type", "timestamp", "direction",
+            name="uq_structure_notification_event"
+        ),
+        Index("ix_structure_notif_sym_tf", "symbol", "timeframe"),
+        Index("ix_structure_notif_timestamp", "timestamp"),
+    )
+
+    def to_schema(self) -> AlertNotification:
+        return AlertNotification(
+            id=self.id,
+            timestamp=self.timestamp,
+            symbol=self.symbol,
+            timeframe=self.timeframe,
+            event_type=self.event_type,
+            direction=self.direction,
+            touch_class=self.touch_class,
+            message=self.message,
+            price=self.price,
+            level=self.level,
+            evidence_score=self.evidence_score,
+            volume_confirmed=self.volume_confirmed,
+            htf_alignment=self.htf_alignment,
+            action_line_slope=self.action_line_slope,
+            action_line_intercept=self.action_line_intercept,
+            safety_line_type=self.safety_line_type,
+            safety_line_touches=self.safety_line_touches,
+            read=self.read,
+            created_at=self.created_at,
+        )
+
+    @classmethod
+    def from_schema(cls, notif: AlertNotification) -> "StructureNotificationModel":
+        d = notif.model_dump()
+        if not d.get("created_at"):
+            d["created_at"] = datetime.now(timezone.utc).isoformat()
+        return cls(**d)
+
+    def to_dict(self) -> Dict[str, Any]:
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}

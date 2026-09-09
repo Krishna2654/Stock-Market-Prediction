@@ -18,7 +18,17 @@ export const EventHistoryTable: React.FC<EventHistoryTableProps> = ({
 
   const filtered = notifications.filter((n) => {
     if (filterTimeframe !== 'ALL' && n.timeframe !== filterTimeframe) return false;
-    if (filterEventType !== 'ALL' && !n.event_type.includes(filterEventType)) return false;
+    if (filterEventType !== 'ALL') {
+      if (filterEventType === '3-TOUCH') {
+        if (n.touch_class !== '3-TOUCH' && !n.message.includes('3-TOUCH')) return false;
+      } else if (filterEventType === '2-TOUCH') {
+        if (n.touch_class !== '2-TOUCH' && !n.message.includes('2-TOUCH')) return false;
+      } else if (filterEventType === 'TREND_LINE') {
+        if (!n.event_type.includes('TREND_LINE') && !n.event_type.includes('TRENDLINE')) return false;
+      } else if (!n.event_type.includes(filterEventType)) {
+        return false;
+      }
+    }
     if (searchTerm && !n.symbol.toLowerCase().includes(searchTerm.toLowerCase()) && !n.message.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
@@ -110,10 +120,13 @@ export const EventHistoryTable: React.FC<EventHistoryTableProps> = ({
             className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none cursor-pointer"
           >
             <option value="ALL">All Events</option>
+            <option value="TREND_LINE">Trendline Breaks</option>
+            <option value="3-TOUCH">⭐ 3-Touch Breaks</option>
+            <option value="2-TOUCH">2-Touch Breaks</option>
+            <option value="RESISTANCE">Resistance Breaks</option>
+            <option value="SUPPORT">Support Breaks</option>
             <option value="BOS">BOS</option>
             <option value="CHOCH">CHoCH</option>
-            <option value="BREAKOUT">Breakout</option>
-            <option value="ALIGNMENT">HTF Alignment</option>
           </select>
 
           {/* Export CSV */}
@@ -186,13 +199,24 @@ export const EventHistoryTable: React.FC<EventHistoryTableProps> = ({
                       </span>
                     </td>
                     <td className="py-2.5 px-3 whitespace-nowrap font-semibold">
-                      <span className={`px-2 py-0.5 rounded text-[11px] ${
-                        isBull
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                          : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
-                      }`}>
-                        {evt.event_type.replace('_', ' ')}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`px-2 py-0.5 rounded text-[11px] ${
+                          isBull
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                        }`}>
+                          {evt.event_type.replace(/_/g, ' ')}
+                        </span>
+                        {(evt.touch_class === '3-TOUCH' || evt.message?.includes('3-TOUCH')) ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm">
+                            ⭐ 3-TOUCH
+                          </span>
+                        ) : (evt.touch_class === '2-TOUCH' || evt.message?.includes('2-TOUCH')) ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                            2-TOUCH
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 font-mono font-bold text-slate-200 whitespace-nowrap">
                       ₹{evt.price.toFixed(2)}

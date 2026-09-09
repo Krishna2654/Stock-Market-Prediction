@@ -121,8 +121,21 @@ export const api = {
     if (!res.ok) throw new Error('Failed to delete alert rule');
   },
 
-  getNotifications: async (limit: number = 50): Promise<AlertNotification[]> => {
-    const res = await fetch(`${API_BASE}/alerts/notifications?limit=${limit}`);
+  getNotifications: async (
+    limit: number = 50,
+    page?: number,
+    symbol?: string,
+    eventType?: string,
+    touchClass?: string
+  ): Promise<any> => {
+    const params = new URLSearchParams();
+    params.set('limit', limit.toString());
+    if (page !== undefined) params.set('page', page.toString());
+    if (symbol && symbol !== 'ALL') params.set('symbol', symbol);
+    if (eventType && eventType !== 'ALL') params.set('event_type', eventType);
+    if (touchClass && touchClass !== 'ALL') params.set('touch_class', touchClass);
+
+    const res = await fetch(`${API_BASE}/alerts/notifications?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch notifications');
     return res.json();
   },

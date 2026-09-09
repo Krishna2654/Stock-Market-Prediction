@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import MWBreakoutAlertModel
-from app.models.schemas import MWBreakoutAlert
+from app.db.models import MWBreakoutAlertModel, StructureNotificationModel
+from app.models.schemas import AlertNotification, MWBreakoutAlert
 
 logger = logging.getLogger(__name__)
 
@@ -455,6 +455,209 @@ class MWAlertRepository:
             "m_count": m_count,
             "unique_identities": unique_identities,
             "duplicate_identities": total - unique_identities,
+            "earliest_timestamp": earliest,
+            "latest_timestamp": latest,
+        }
+
+
+class StructureNotificationRepository:
+    """
+    Dedicated database repository for persistent structure and trendline notifications.
+    Enforces lossless persistence, unique constraint enforcement on (symbol, timeframe, event_type, timestamp, direction),
+    and fast index-backed retrieval.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_physical_identity(
+        self,
+        symbol: str,
+        timeframe: str,
+        event_type: str,
+        timestamp: str,
+        direction: Optional[str] = None,
+    ) -> Optional[StructureNotificationModel]:
+        """Finds a notification by its unique physical event identity."""
+        stmt = select(StructureNotificationModel).where(
+            StructureNotificationModel.symbol == symbol,
+            StructureNotificationModel.timeframe == timeframe,
+            StructureNotificationModel.event_type == event_type,
+            StructureNotificationModel.timestamp == timestamp,
+            StructureNotificationModel.direction == direction,
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def get_by_id(self, notif_id: str) -> Optional[StructureNotificationModel]:
+        """Finds a notification by its primary key ID."""
+        stmt = select(StructureNotificationModel).where(
+            StructureNotificationModel.id == notif_id
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def save_notification(
+        self,
+        notif: AlertNotification,
+    ) -> Tuple[bool, StructureNotificationModel]:
+        """
+        Saves a structure notification idempotently.
+        If notification already exists by (symbol, timeframe, event_type, timestamp, direction) or id:
+            returns (False, existing_model).
+        Otherwise:
+            inserts new model and returns (True, new_model).
+        """
+        existing = await self.get_by_physical_identity(
+            symbol=notif.symbol,
+            timeframe=notif.timeframe,
+            event_type=notif.event_type,
+            timestamp=notif.timestamp,
+            direction=notif.direction,
+        )
+        if existing is not None:
+            return False, existing
+
+        if notif.id:
+            existing_by_id = await self.get_by_id(notif.id)
+            if existing_by_id is not None:
+                return False, existing_by_id
+
+        model = StructureNotificationModel.from_schema(notif)
+        self.session.add(model)
+        try:
+            await self.session.flush()
+            return True, model
+        except Exception:
+            await self.session.rollback()
+            existing = await self.get_by_physical_identity(
+                symbol=notif.symbol,
+                timeframe=notif.timeframe,
+                event_type=notif.event_type,
+                timestamp=notif.timestamp,
+                direction=notif.direction,
+            )
+            if existing is not None:
+                return False, existing
+            raise
+
+    async def get_seen_event_ids(self) -> Set[str]:
+        """Returns set of all notification IDs and composite event keys for fast in-memory deduplication."""
+        stmt = select(
+            StructureNotificationModel.id,
+            StructureNotificationModel.symbol,
+            StructureNotificationModel.timeframe,
+            StructureNotificationModel.event_type,
+            StructureNotificationModel.timestamp,
+            StructureNotificationModel.direction,
+        )
+        res = await self.session.execute(stmt)
+        seen: Set[str] = set()
+        for row in res.all():
+            notif_id, sym, tf, evt, ts, direct = row
+            seen.add(notif_id)
+            if notif_id.startswith("alert_"):
+                seen.add(notif_id[6:])
+            seen.add(f"{sym}_{tf}_{evt}_{ts}_{direct}")
+        return seen
+
+    async def get_recent_notifications(self, limit: int = 100) -> List[AlertNotification]:
+        """Returns most recent structure notifications sorted chronologically descending."""
+        stmt = (
+            select(StructureNotificationModel)
+            .order_by(
+                StructureNotificationModel.timestamp.desc(),
+                StructureNotificationModel.created_at.desc()
+            )
+            .limit(limit)
+        )
+        res = await self.session.execute(stmt)
+        models = res.scalars().all()
+        return [m.to_schema() for m in models]
+
+    async def get_paginated_notifications(
+        self,
+        symbol: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        event_type: Optional[str] = None,
+        touch_class: Optional[str] = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> Tuple[List[AlertNotification], int, int, bool, bool]:
+        """Returns paginated notifications with count and paging navigation flags."""
+        base_query = select(StructureNotificationModel)
+        count_query = select(func.count(StructureNotificationModel.id))
+
+        filters = []
+        if symbol and symbol.upper() != "ALL":
+            filters.append(StructureNotificationModel.symbol.ilike(symbol))
+        if timeframe:
+            filters.append(StructureNotificationModel.timeframe == timeframe)
+        if event_type and event_type.upper() != "ALL":
+            filters.append(StructureNotificationModel.event_type == event_type)
+        if touch_class and touch_class.upper() != "ALL":
+            filters.append(StructureNotificationModel.touch_class == touch_class)
+
+        if filters:
+            base_query = base_query.where(*filters)
+            count_query = count_query.where(*filters)
+
+        total_res = await self.session.execute(count_query)
+        total_count = total_res.scalar() or 0
+
+        page = max(1, page)
+        limit = max(1, min(limit, 200))
+        offset = (page - 1) * limit
+        total_pages = max(1, (total_count + limit - 1) // limit) if total_count > 0 else 1
+
+        items_stmt = (
+            base_query.order_by(
+                StructureNotificationModel.timestamp.desc(),
+                StructureNotificationModel.created_at.desc()
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        res = await self.session.execute(items_stmt)
+        models = res.scalars().all()
+
+        has_next = page < total_pages
+        has_prev = page > 1
+
+        return [m.to_schema() for m in models], total_count, total_pages, has_next, has_prev
+
+    async def mark_all_read(self) -> int:
+        """Marks all structure notifications as read."""
+        stmt = update(StructureNotificationModel).where(
+            or_(StructureNotificationModel.read.is_(False), StructureNotificationModel.read.is_(None))
+        ).values(read=True)
+        res = await self.session.execute(stmt)
+        await self.session.flush()
+        return res.rowcount
+
+    async def clear_all(self) -> int:
+        """Clears all structure notifications."""
+        stmt = delete(StructureNotificationModel)
+        res = await self.session.execute(stmt)
+        await self.session.flush()
+        return res.rowcount
+
+    async def get_metrics(self) -> Dict[str, Any]:
+        """Calculates audit metrics for structure notifications dynamically from SQLite."""
+        total = await self.session.scalar(select(func.count(StructureNotificationModel.id))) or 0
+        touch2_count = await self.session.scalar(
+            select(func.count(StructureNotificationModel.id)).where(StructureNotificationModel.touch_class == "2-TOUCH")
+        ) or 0
+        touch3_count = await self.session.scalar(
+            select(func.count(StructureNotificationModel.id)).where(StructureNotificationModel.touch_class == "3-TOUCH")
+        ) or 0
+        earliest = await self.session.scalar(select(func.min(StructureNotificationModel.timestamp)))
+        latest = await self.session.scalar(select(func.max(StructureNotificationModel.timestamp)))
+
+        return {
+            "total_count": total,
+            "2_touch_count": touch2_count,
+            "3_touch_count": touch3_count,
             "earliest_timestamp": earliest,
             "latest_timestamp": latest,
         }

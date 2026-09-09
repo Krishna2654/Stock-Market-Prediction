@@ -145,7 +145,12 @@ async def get_all_instruments_overview():
         if isinstance(res, MultiTimeframeSynthesis):
             valid_syntheses.append(res)
             try:
-                alert_engine.process_synthesis_for_alerts(res)
+                new_alerts = alert_engine.process_synthesis_for_alerts(res)
+                for alert in new_alerts:
+                    asyncio.create_task(ws_manager.broadcast({
+                        "type": "ALERT_TRIGGERED",
+                        "alert": alert.model_dump()
+                    }))
             except Exception as e:
                 pass
             try:
@@ -207,7 +212,12 @@ async def get_instrument_detail(symbol: str):
     
     synthesis = await _analyze_instrument_cached(symbol, ticker, provider)
     try:
-        alert_engine.process_synthesis_for_alerts(synthesis)
+        new_alerts = alert_engine.process_synthesis_for_alerts(synthesis)
+        for alert in new_alerts:
+            asyncio.create_task(ws_manager.broadcast({
+                "type": "ALERT_TRIGGERED",
+                "alert": alert.model_dump()
+            }))
     except Exception:
         pass
     try:

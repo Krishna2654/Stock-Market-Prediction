@@ -333,6 +333,13 @@ class AlertNotification(BaseModel):
     volume_confirmed: bool
     htf_alignment: str
     read: bool = False
+    direction: Optional[str] = None
+    touch_class: Optional[str] = None
+    action_line_slope: Optional[float] = None
+    action_line_intercept: Optional[float] = None
+    safety_line_type: Optional[str] = None
+    safety_line_touches: Optional[int] = None
+    created_at: Optional[str] = None
 
 class HighConfluenceAlert(BaseModel):
     id: str
@@ -437,6 +444,15 @@ class MWBreakoutAlert(BaseModel):
 
 class PaginatedMWBreakoutsResponse(BaseModel):
     items: List[MWBreakoutAlert]
+    page: int
+    limit: int
+    total: int
+    total_pages: int
+    has_next: bool
+    has_previous: bool
+
+class PaginatedStructureNotificationsResponse(BaseModel):
+    items: List[AlertNotification]
     page: int
     limit: int
     total: int

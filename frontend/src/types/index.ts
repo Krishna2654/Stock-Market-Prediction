@@ -243,6 +243,9 @@ export interface AlertNotification {
   volume_confirmed: boolean;
   htf_alignment: string;
   read: boolean;
+  direction?: string;
+  touch_class?: string;
+  created_at?: string;
 }
 
 export interface PatternTargetAnalysis {
