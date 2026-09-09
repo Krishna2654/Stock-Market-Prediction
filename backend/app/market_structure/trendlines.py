@@ -106,25 +106,8 @@ class TrendlineDetector:
         swings: List[SwingPoint],
         atr: float
     ) -> List[Tuple[float, Trendline]]:
-        lows = [s for s in swings if not s.is_high]
-        
-        # Ensure the absolute base origin low from consolidation/base range is included
-        if len(candles) >= 4:
-            window = max(3, len(candles) // 3)
-            min_idx = int(np.argmin([c.low for c in candles[:window]]))
-            if not any(abs(l.index - min_idx) <= 1 for l in lows):
-                lows.insert(0, SwingPoint(
-                    index=min_idx,
-                    timestamp=candles[min_idx].timestamp,
-                    price=candles[min_idx].low,
-                    type="LL",
-                    is_high=False,
-                    confirmed=True,
-                    confirmation_index=min_idx + 1
-                ))
-                lows.sort(key=lambda s: s.index)
-
-        if len(lows) < 2:
+        lows = sorted([s for s in swings if not s.is_high and getattr(s, "confirmed", True)], key=lambda s: s.index)
+        if len(lows) < 3:
             return []
 
         n = len(candles)
@@ -135,11 +118,7 @@ class TrendlineDetector:
             if not subsequent:
                 continue
 
-            higher_lows = [s for s in subsequent if s.price >= first.price]
-            if not higher_lows:
-                continue
-
-            for second in higher_lows:
+            for second in subsequent:
                 dx = second.index - first.index
                 if dx < 2:
                     continue
@@ -150,20 +129,39 @@ class TrendlineDetector:
 
                 intercept = first.price - slope * first.index
 
+                # T3 Validation: Must find at least one confirmed swing low after T2 respecting the line within 0.65 * atr
+                # User Clarification 1: Do not enforce monotonic T1.price < T2.price < T3.price if not required.
+                # User Clarification 2: Preserve existing ATR-based 0.65 * ATR touch tolerance.
+                t3_candidates = [
+                    s for s in lows
+                    if s.index > second.index and abs(s.price - (slope * s.index + intercept)) <= 0.65 * atr
+                ]
+                if not t3_candidates:
+                    continue
+
                 touches: List[SwingPoint] = [first, second]
                 violations = 0
-                deviations: List[float] = []
+                deviations: List[float] = [0.0, 0.0]
 
-                # Verify all swing lows in between and subsequent
+                # Collect all qualifying swing lows after second within tolerance
                 for s in lows:
-                    if s.index < first.index:
+                    if s.index <= second.index:
                         continue
                     line_price = slope * s.index + intercept
                     dist = abs(s.price - line_price)
-                    deviations.append(dist)
-
                     if dist <= 0.65 * atr:
                         touches.append(s)
+                        deviations.append(dist)
+
+                unique_touch_swings = {s.index: s for s in touches}
+                sorted_touch_indices = sorted(unique_touch_swings.keys())
+                touch_count = len(sorted_touch_indices)
+
+                # Strict requirement: at least 3 confirmed structural touches
+                if touch_count < 3:
+                    continue
+
+                t3_idx = sorted_touch_indices[2]
 
                 # Check candle body penetration
                 check_limit = n
@@ -177,23 +175,19 @@ class TrendlineDetector:
                         if break_index is None and k > second.index:
                             break_index = k
 
-                if violations > 5 and break_index is not None and break_index <= second.index:
+                # If the line was broken before or at the 3rd touch, it is invalid
+                if break_index is not None and break_index <= t3_idx:
                     continue
 
-                unique_touch_swings = {s.index: s for s in touches}
-                sorted_touch_indices = sorted(unique_touch_swings.keys())
-                touch_count = len(sorted_touch_indices)
-
-                if touch_count < 2:
+                if violations > 5 and break_index is not None and break_index <= t3_idx:
                     continue
 
                 span = sorted_touch_indices[-1] - sorted_touch_indices[0]
                 mean_dev = np.mean(deviations) if deviations else atr
-                recency = n - second.index
+                recency = n - sorted_touch_indices[-1]
 
-                # Extra bonus for breakout trendlines originating from the base bottom connecting higher lows
                 is_base_origin = (first.index == lows[0].index)
-                base_bonus = 150 if (is_base_origin and touch_count >= 2) else 0
+                base_bonus = 150 if (is_base_origin and touch_count >= 3) else 0
 
                 score = (
                     touch_count * 100
@@ -207,7 +201,7 @@ class TrendlineDetector:
                 current_price = candles[-1].close
                 line_end_price = slope * (n - 1) + intercept
                 is_broken = current_price < (line_end_price - 0.25 * atr) or (break_index is not None)
-                
+
                 if is_broken and break_index is not None:
                     end_idx = break_index
                     end_pr = slope * break_index + intercept
@@ -218,7 +212,7 @@ class TrendlineDetector:
                     status = "ACTIVE"
 
                 strength: Literal["MAJOR", "INTERMEDIATE", "MINOR"] = (
-                    "MAJOR" if touch_count >= 4 or (is_base_origin and touch_count >= 3) else "INTERMEDIATE" if touch_count >= 3 or span >= 20 else "MINOR"
+                    "MAJOR" if touch_count >= 4 or (is_base_origin and touch_count >= 3) else "INTERMEDIATE"
                 )
 
                 touch_point_objs = [
@@ -278,25 +272,8 @@ class TrendlineDetector:
         swings: List[SwingPoint],
         atr: float
     ) -> List[Tuple[float, Trendline]]:
-        highs = [s for s in swings if s.is_high]
-        
-        # Ensure the absolute base origin peak from consolidation ceiling is included
-        if len(candles) >= 4:
-            window = max(3, len(candles) // 3)
-            max_idx = int(np.argmax([c.high for c in candles[:window]]))
-            if not any(abs(h.index - max_idx) <= 1 for h in highs):
-                highs.insert(0, SwingPoint(
-                    index=max_idx,
-                    timestamp=candles[max_idx].timestamp,
-                    price=candles[max_idx].high,
-                    type="HH",
-                    is_high=True,
-                    confirmed=True,
-                    confirmation_index=max_idx + 1
-                ))
-                highs.sort(key=lambda s: s.index)
-
-        if len(highs) < 2:
+        highs = sorted([s for s in swings if s.is_high and getattr(s, "confirmed", True)], key=lambda s: s.index)
+        if len(highs) < 3:
             return []
 
         n = len(candles)
@@ -307,11 +284,7 @@ class TrendlineDetector:
             if not subsequent:
                 continue
 
-            lower_highs = [s for s in subsequent if s.price <= first.price]
-            if not lower_highs:
-                continue
-
-            for second in lower_highs:
+            for second in subsequent:
                 dx = second.index - first.index
                 if dx < 2:
                     continue
@@ -322,20 +295,41 @@ class TrendlineDetector:
 
                 intercept = first.price - slope * first.index
 
+                # T3 Validation: Must find at least one confirmed swing high after T2 respecting the line within 0.65 * atr
+                # User Clarification 1: Do not enforce monotonic T1.price > T2.price > T3.price if not required.
+                # User Clarification 2: Preserve existing ATR-based 0.65 * ATR touch tolerance.
+                t3_candidates = [
+                    s for s in highs
+                    if s.index > second.index and abs(s.price - (slope * s.index + intercept)) <= 0.65 * atr
+                ]
+                if not t3_candidates:
+                    continue
+
                 touches: List[SwingPoint] = [first, second]
                 violations = 0
-                deviations: List[float] = []
+                deviations: List[float] = [0.0, 0.0]
 
+                # Collect all qualifying swing highs after second within tolerance
                 for s in highs:
-                    if s.index < first.index:
+                    if s.index <= second.index:
                         continue
                     line_price = slope * s.index + intercept
                     dist = abs(s.price - line_price)
-                    deviations.append(dist)
-
                     if dist <= 0.65 * atr:
                         touches.append(s)
+                        deviations.append(dist)
 
+                unique_touch_swings = {s.index: s for s in touches}
+                sorted_touch_indices = sorted(unique_touch_swings.keys())
+                touch_count = len(sorted_touch_indices)
+
+                # Strict requirement: at least 3 confirmed structural touches
+                if touch_count < 3:
+                    continue
+
+                t3_idx = sorted_touch_indices[2]
+
+                # Check candle body penetration
                 check_limit = n
                 break_index = None
                 for k in range(first.index, check_limit):
@@ -347,23 +341,19 @@ class TrendlineDetector:
                         if break_index is None and k > second.index:
                             break_index = k
 
-                if violations > 5 and break_index is not None and break_index <= second.index:
+                # If broken before or at the 3rd touch, candidate is invalid
+                if break_index is not None and break_index <= t3_idx:
                     continue
 
-                unique_touch_swings = {s.index: s for s in touches}
-                sorted_touch_indices = sorted(unique_touch_swings.keys())
-                touch_count = len(sorted_touch_indices)
-
-                if touch_count < 2:
+                if violations > 5 and break_index is not None and break_index <= t3_idx:
                     continue
 
                 span = sorted_touch_indices[-1] - sorted_touch_indices[0]
                 mean_dev = np.mean(deviations) if deviations else atr
-                recency = n - second.index
+                recency = n - sorted_touch_indices[-1]
 
-                # Extra bonus for breakdown trendlines originating from the base top connecting lower highs
                 is_base_origin = (first.index == highs[0].index)
-                base_bonus = 150 if (is_base_origin and touch_count >= 2) else 0
+                base_bonus = 150 if (is_base_origin and touch_count >= 3) else 0
 
                 score = (
                     touch_count * 100
@@ -388,7 +378,7 @@ class TrendlineDetector:
                     status = "ACTIVE"
 
                 strength: Literal["MAJOR", "INTERMEDIATE", "MINOR"] = (
-                    "MAJOR" if touch_count >= 4 or (is_base_origin and touch_count >= 3) else "INTERMEDIATE" if touch_count >= 3 or span >= 20 else "MINOR"
+                    "MAJOR" if touch_count >= 4 or (is_base_origin and touch_count >= 3) else "INTERMEDIATE"
                 )
 
                 touch_point_objs = [
@@ -491,13 +481,12 @@ class TrendlineDetector:
         swings: List[SwingPoint],
         max_lines_per_direction: int = 5
     ) -> List[Trendline]:
-        if len(candles) < 4 or len(swings) < 2:
+        if len(candles) < 4 or len(swings) < 3:
             return []
 
         atr = cls._calculate_atr(candles)
         n = len(candles)
-        # Cap swings to the most recent 80 swings to prevent O(S^2 * N) combinatorial explosion
-        # on large datasets (e.g. 5M intraday candles with 500+ swings = 150,000 pairs x 8,000 candles)
+        # Cap swings to the most recent 80 swings to prevent combinatorial explosion
         eval_swings = swings[-80:] if len(swings) > 80 else swings
 
         up_candidates = cls._build_uptrend_candidates(candles, eval_swings, atr)
@@ -528,7 +517,15 @@ class TrendlineDetector:
             previous = candles[i - 1]
 
             for tl in trendlines:
-                if i < tl.p2_index:
+                # Clarification 3:
+                # Explicitly guarantee touch_points are chronologically sorted and represent: T1 < T2 < T3.
+                # The breakout search must begin strictly after the confirmed chronological third touch.
+                if tl.touch_points and len(tl.touch_points) >= 3:
+                    sorted_tps = sorted(tl.touch_points, key=lambda tp: tp.index)
+                    t3_index = sorted_tps[2].index
+                    if i <= t3_index:
+                        continue
+                elif i <= tl.p2_index:
                     continue
 
                 line_now = tl.get_price_at_index(i)

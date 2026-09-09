@@ -326,8 +326,12 @@ class TrendlineShortlistEngine:
                 breakout_time = None
                 breakout_candle = None
 
-                # Search recent 10 candles for the initial crossing close
+                # Search recent 10 candles for the initial crossing close strictly after 3rd touch
+                sorted_tps = sorted(touch_points, key=lambda tp: tp.get("index", 0) if isinstance(tp, dict) else getattr(tp, "index", 0))
+                t3_idx = sorted_tps[2].get("index", 0) if isinstance(sorted_tps[2], dict) else getattr(sorted_tps[2], "index", 0)
                 for k in range(max(1, len(candles) - 10), len(candles)):
+                    if k <= t3_idx:
+                        continue
                     ck = candles[k]
                     prev_ck = candles[k - 1]
                     lp_k = slope * k + intercept
