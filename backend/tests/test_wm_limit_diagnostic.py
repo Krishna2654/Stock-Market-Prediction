@@ -19,8 +19,15 @@ def run_diagnostic():
     m_stored = sum(1 for a in alerts if a.get("pattern_type") == "M")
     total_stored = len(alerts)
 
-    api_stats = get_mw_breakout_stats()
-    api_alerts = get_mw_breakout_alerts(None, None, None, None, None, None, 200)
+    import asyncio
+    import inspect
+
+    stats_res = get_mw_breakout_stats()
+    api_stats = asyncio.run(stats_res) if inspect.isawaitable(stats_res) else stats_res
+
+    alerts_res = get_mw_breakout_alerts(None, None, None, None, None, None, 200)
+    api_alerts = asyncio.run(alerts_res) if inspect.isawaitable(alerts_res) else alerts_res
+
     w_api = sum(1 for a in api_alerts if a.pattern_type == "W")
     m_api = sum(1 for a in api_alerts if a.pattern_type == "M")
     total_api = len(api_alerts)

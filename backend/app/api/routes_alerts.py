@@ -11,6 +11,8 @@ from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
 from app.market_structure.precision_breakouts import PrecisionBreakoutDetector
 from app.api.websocket import ws_manager
 from app.api.deps import get_current_provider, configured_instruments
+from app.db.database import get_session_factory
+from app.db.repository import MWAlertRepository
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -236,7 +238,7 @@ async def trigger_test_high_confluence_alert(
 # -------------------------------------------------------------
 
 @router.get("/mw-breakouts", response_model=Union[PaginatedMWBreakoutsResponse, List[MWBreakoutAlert]])
-def get_mw_breakout_alerts(
+async def get_mw_breakout_alerts(
     symbol: Optional[str] = Query(None, description="Symbol filter or search query"),
     timeframe: Optional[str] = Query(None, description="Timeframe filter (4H, 1H, 15M, 5M, or All)"),
     pattern_type: Optional[str] = Query(None, description="Pattern type (W, M, or All)"),
@@ -253,16 +255,32 @@ def get_mw_breakout_alerts(
     eff_page = page if isinstance(page, int) else (getattr(page, "default", None) if page is not None else None)
     eff_limit = limit if isinstance(limit, int) else (getattr(limit, "default", 50) or 50)
 
-    if eff_page is not None:
-        items, total, total_pages, has_next, has_prev = mw_breakout_engine.get_paginated_alerts(
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = MWAlertRepository(session)
+        items, total, total_pages, has_next, has_prev = await repo.get_paginated_alerts(
             symbol=eff_symbol,
             timeframe=eff_timeframe,
             pattern_type=eff_pattern_type,
             status=eff_status,
             date_filter=eff_date_filter,
-            page=eff_page,
+            page=eff_page or 1,
             limit=eff_limit
         )
+
+    # Fallback to in-memory alerts if DB returned 0 and in-memory list has items (test fixtures)
+    if total == 0 and mw_breakout_engine.alerts:
+        items, total, total_pages, has_next, has_prev = mw_breakout_engine.get_paginated_alerts_memory(
+            symbol=eff_symbol,
+            timeframe=eff_timeframe,
+            pattern_type=eff_pattern_type,
+            status=eff_status,
+            date_filter=eff_date_filter,
+            page=eff_page or 1,
+            limit=eff_limit
+        )
+
+    if eff_page is not None:
         return PaginatedMWBreakoutsResponse(
             items=items,
             page=eff_page,
@@ -272,14 +290,7 @@ def get_mw_breakout_alerts(
             has_next=has_next,
             has_previous=has_prev
         )
-    return mw_breakout_engine.get_alerts(
-        symbol=eff_symbol,
-        timeframe=eff_timeframe,
-        pattern_type=eff_pattern_type,
-        status=eff_status,
-        date_filter=eff_date_filter,
-        limit=eff_limit
-    )
+    return items
 
 @router.get("/mw-breakouts-candidates", response_model=List[WMPatternStructure])
 async def get_mw_breakout_candidates(
@@ -300,8 +311,16 @@ async def get_mw_breakout_candidates(
         return []
 
 @router.get("/mw-breakouts/stats")
-def get_mw_breakout_stats():
-    return mw_breakout_engine.get_summary_stats()
+async def get_mw_breakout_stats():
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = MWAlertRepository(session)
+        stats = await repo.get_summary_stats()
+        if stats["total_count"] > 0:
+            return stats
+    if mw_breakout_engine.alerts:
+        return mw_breakout_engine.get_summary_stats_memory()
+    return stats
 
 @router.post("/mw-breakouts/refresh")
 async def refresh_mw_breakouts():
@@ -312,27 +331,48 @@ async def refresh_mw_breakouts():
     """
     provider = get_current_provider()
     result = await mw_breakout_engine.rescan_all_instruments(provider, configured_instruments)
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = MWAlertRepository(session)
+        stats = await repo.get_summary_stats()
     return {
         "message": "M/W breakout alerts refreshed successfully",
         "result": result,
-        "stats": mw_breakout_engine.get_summary_stats()
+        "stats": stats
     }
 
 @router.get("/mw-breakouts/{alert_id:path}", response_model=MWBreakoutAlert)
-def get_mw_breakout_detail(alert_id: str):
-    alert = mw_breakout_engine.get_alert_by_id(alert_id)
-    if not alert:
-        raise HTTPException(status_code=404, detail="M/W Breakout Alert not found")
-    return alert
+async def get_mw_breakout_detail(alert_id: str):
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = MWAlertRepository(session)
+        model = await repo.get_alert_by_flexible_id(alert_id)
+        if model:
+            return model.to_schema()
+
+    mem_alert = mw_breakout_engine.get_alert_by_id(alert_id)
+    if mem_alert:
+        return mem_alert
+    raise HTTPException(status_code=404, detail="M/W Breakout Alert not found")
 
 @router.post("/mw-breakouts/read-all")
-def mark_mw_breakouts_read():
-    mw_breakout_engine.mark_all_read()
+async def mark_mw_breakouts_read():
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = MWAlertRepository(session)
+        await repo.mark_all_read()
+        await session.commit()
+    mw_breakout_engine.mark_all_read_memory()
     return {"message": "All M/W breakout alerts marked as read"}
 
 @router.post("/mw-breakouts/clear")
-def clear_mw_breakouts():
-    mw_breakout_engine.clear_alerts()
+async def clear_mw_breakouts():
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = MWAlertRepository(session)
+        await repo.clear_all_alerts()
+        await session.commit()
+    mw_breakout_engine.clear_alerts_memory()
     return {"message": "M/W breakout alerts cleared"}
 
 @router.post("/mw-breakouts/test", response_model=MWBreakoutAlert)
@@ -447,8 +487,12 @@ async def trigger_test_mw_breakout(
             read=False
         )
 
+    factory = get_session_factory()
+    async with factory() as session:
+        repo = MWAlertRepository(session)
+        await repo.ingest_alert_safe(test_alert)
+        await session.commit()
     mw_breakout_engine.alerts.insert(0, test_alert)
-    mw_breakout_engine._save_to_storage()
     await ws_manager.broadcast({
         "type": "MW_BREAKOUT_TRIGGERED",
         "alert": test_alert.model_dump()

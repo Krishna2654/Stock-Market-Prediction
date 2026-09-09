@@ -18,6 +18,7 @@ from app.alerts.engine import alert_engine
 from app.alerts.high_confluence_engine import high_confluence_alert_engine
 from app.alerts.mw_breakout_engine import mw_breakout_engine
 from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
+from app.db import init_db
 
 background_monitor_task = None
 
@@ -132,6 +133,10 @@ async def market_monitor_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    try:
+        await init_db()
+    except Exception as e:
+        print(f"[DB Startup Warning]: {e}")
     task = asyncio.create_task(market_monitor_loop())
     yield
     # Shutdown
