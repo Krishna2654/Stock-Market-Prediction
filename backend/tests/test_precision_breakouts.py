@@ -1322,8 +1322,8 @@ def test_detect_wm_patterns_asymmetric_highs_detected():
     assert active_pat.s2_price == 79880.0
     assert active_pat.neckline_price == 79200.0
     assert active_pat.target_analysis is not None
-    # Measured Target = Neckline - Height = 79200 - (80000 - 79200) = 78400
-    assert active_pat.target_analysis.measured_target == 78400.0
+    # Structural Reversal Target 1 = Preceding Trend-Origin Swing Low (78800.0 at index 0)
+    assert active_pat.target_analysis.measured_target == 78800.0
 
 def test_detect_wm_patterns_debug_diagnostics_records_rejections():
     """

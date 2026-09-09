@@ -115,10 +115,16 @@ class PrecisionBreakoutDetector:
         quality_breakdown: Dict[str, int] = {},
         atr_val: float = 1.0,
         sl_atr_buffer: Optional[float] = None,
-        target_extension: Optional[float] = None
+        target_extension: Optional[float] = None,
+        reversal_target: Optional[float] = None
     ) -> PatternTargetAnalysis:
         """
-        Calculates objective technical measured-move targets, intermediate obstacles, and invalidation levels.
+        Calculates technical targets, intermediate obstacles, and invalidation levels.
+        For genuine W/M reversals:
+        - Target 1 represents the price level where the preceding trend started (reversal_target).
+        - W: reversal_target must be strictly above the neckline.
+        - M: reversal_target must be strictly below the neckline.
+        - If reversal_target is missing or invalid, safely falls back to standard measured move.
         Stop Loss is strictly independent of the neckline (behind Point 2 / second swing with ATR buffer).
         W: SL = Low 2 - ATR_buffer (strictly < neckline)
         M: SL = High 2 + ATR_buffer (strictly > neckline)
@@ -129,7 +135,13 @@ class PrecisionBreakoutDetector:
         if pattern_type == "W":
             pattern_low = min(s1_price, s2_price)
             w_height = round(neckline_price - pattern_low, 2)
-            measured_target = round(neckline_price + w_height, 2)
+
+            # Target 1: Preceding bearish trend-origin swing high (Structural Reversal Target)
+            # Safe compatibility fallback: Neckline + Pattern Height
+            if reversal_target is not None and reversal_target > neckline_price:
+                measured_target = round(reversal_target, 2)
+            else:
+                measured_target = round(neckline_price + w_height, 2)
 
             # Stop Loss / Invalidation Close:
             # Low 2 - ATR buffer (never neckline)
@@ -160,7 +172,7 @@ class PrecisionBreakoutDetector:
 
             interp = (
                 f"Confirmed W-pattern breakout with trendline and 20 EMA confluence. "
-                f"The measured target 1 is ₹{measured_target:,.2f}, Target 2 is ₹{target_2:,.2f}"
+                f"Structural Reversal Target 1 is ₹{measured_target:,.2f}, Target 2 is ₹{target_2:,.2f}"
                 + (f", subject to intervening resistance at ₹{nearest_obstacle:,.2f}." if nearest_obstacle else ".")
             )
 
@@ -188,7 +200,13 @@ class PrecisionBreakoutDetector:
         else:  # M Pattern
             pattern_high = max(s1_price, s2_price)
             m_height = round(pattern_high - neckline_price, 2)
-            measured_target = round(neckline_price - m_height, 2)
+
+            # Target 1: Preceding bullish trend-origin swing low (Structural Reversal Target)
+            # Safe compatibility fallback: Neckline - Pattern Height
+            if reversal_target is not None and reversal_target < neckline_price:
+                measured_target = round(reversal_target, 2)
+            else:
+                measured_target = round(neckline_price - m_height, 2)
 
             # Stop Loss / Invalidation Close:
             # High 2 + ATR buffer (never neckline)
@@ -219,7 +237,7 @@ class PrecisionBreakoutDetector:
 
             interp = (
                 f"Confirmed M-pattern breakdown with trendline and 20 EMA confluence. "
-                f"The measured target is a technical projection (₹{measured_target:,.2f})"
+                f"Structural Reversal Target 1 is ₹{measured_target:,.2f}, Target 2 is ₹{target_2:,.2f}"
                 + (f" and may encounter support before reaching it at ₹{nearest_obstacle:,.2f}." if nearest_obstacle else ".")
             )
 
@@ -684,6 +702,87 @@ class PrecisionBreakoutDetector:
             df_indicators=df_indicators
         )
 
+    @classmethod
+    def extract_preceding_trend_origin(
+        cls,
+        candles: List[Candle],
+        swings: List[SwingPoint],
+        point_1: SwingPoint,
+        pattern_type: str,
+        timeframe: Optional[str] = None
+    ) -> Tuple[Optional[float], Optional[str]]:
+        """
+        Identifies the exact swing pivot that initiated the validated preceding trend leading into Point 1:
+        - For W (reversal of bearish trend): The swing high at the beginning of the validated bearish sequence.
+        - For M (reversal of bullish trend): The swing low at the beginning of the validated bullish sequence.
+
+        Respects the same structural boundary and session scoping as classify_preceding_market_regime().
+        Does NOT rely on an arbitrary candle/swing window (e.g. not prior_swings[-5:] or 20 candles).
+        Does NOT blindly take max(prior_highs) or min(prior_lows) across all history;
+        instead walks backwards along the uninterrupted progression to isolate the initiating pivot.
+        """
+        tf_clean = (timeframe or "1H").upper()
+        all_prior = [s for s in swings if getattr(s, "confirmed", True) and s.index < point_1.index]
+        p1_date = point_1.timestamp.split("T")[0] if "T" in str(point_1.timestamp) else str(point_1.timestamp)[:10]
+
+        if tf_clean in ["1M", "3M", "5M", "15M", "30M"]:
+            same_sess = [s for s in all_prior if (s.timestamp.split("T")[0] if "T" in str(s.timestamp) else str(s.timestamp)[:10]) == p1_date]
+            swings_to_scan = same_sess if len(same_sess) >= 2 else all_prior
+        else:
+            swings_to_scan = all_prior
+
+        if pattern_type == "W":
+            prior_highs = [s for s in swings_to_scan if s.is_high]
+            if prior_highs:
+                # Walk backwards from the immediate high before Point 1 through the sequence of descending highs
+                origin = prior_highs[-1]
+                for i in range(len(prior_highs) - 2, -1, -1):
+                    h = prior_highs[i]
+                    if h.price > origin.price:
+                        origin = h
+                    else:
+                        break
+                return origin.price, origin.timestamp
+
+            # Fallback if zero confirmed swing highs exist but same-session candles exist
+            p1_idx = point_1.index
+            if candles and p1_idx > 0:
+                start_idx = max(0, p1_idx - 20)
+                pre_c = candles[start_idx:p1_idx]
+                same_sess_c = [c for c in pre_c if (c.timestamp.split("T")[0] if "T" in str(c.timestamp) else str(c.timestamp)[:10]) == p1_date]
+                eval_c = same_sess_c if len(same_sess_c) >= 2 else pre_c
+                if eval_c:
+                    max_c = max(eval_c, key=lambda c: c.high)
+                    return max_c.high, max_c.timestamp
+
+            return None, None
+
+        else:  # M Pattern
+            prior_lows = [s for s in swings_to_scan if not s.is_high]
+            if prior_lows:
+                # Walk backwards from the immediate low before Point 1 through the sequence of ascending lows
+                origin = prior_lows[-1]
+                for i in range(len(prior_lows) - 2, -1, -1):
+                    l = prior_lows[i]
+                    if l.price < origin.price:
+                        origin = l
+                    else:
+                        break
+                return origin.price, origin.timestamp
+
+            # Fallback if zero confirmed swing lows exist but same-session candles exist
+            p1_idx = point_1.index
+            if candles and p1_idx > 0:
+                start_idx = max(0, p1_idx - 20)
+                pre_c = candles[start_idx:p1_idx]
+                same_sess_c = [c for c in pre_c if (c.timestamp.split("T")[0] if "T" in str(c.timestamp) else str(c.timestamp)[:10]) == p1_date]
+                eval_c = same_sess_c if len(same_sess_c) >= 2 else pre_c
+                if eval_c:
+                    min_c = min(eval_c, key=lambda c: c.low)
+                    return min_c.low, min_c.timestamp
+
+            return None, None
+
     @staticmethod
     def _cluster_swings(swings: List[SwingPoint], atr_val: float, max_bar_diff: int = 3, price_tol_atr: float = 0.15) -> List[SwingPoint]:
         """
@@ -1035,6 +1134,9 @@ class PrecisionBreakoutDetector:
 
                 pattern_id = f"{symbol}_{timeframe}_M_{h1.timestamp}_{h2.timestamp}"
 
+                # Calculate preceding trend origin for genuine M reversal target (preceding swing low)
+                m_origin, _ = cls.extract_preceding_trend_origin(candles, swings, point_1=h1, pattern_type="M", timeframe=timeframe)
+
                 # Calculate measured target and independent invalidation / Stop Loss
                 target_analysis = cls.calculate_pattern_targets(
                     pattern_type="M",
@@ -1046,7 +1148,8 @@ class PrecisionBreakoutDetector:
                     key_supports=key_supports,
                     key_resistances=key_resistances,
                     atr_val=atr_val,
-                    sl_atr_buffer=sl_buf
+                    sl_atr_buffer=sl_buf,
+                    reversal_target=m_origin
                 )
 
                 # Scan for confirmed breakout candle strictly after Point 2 (H2)
@@ -1251,6 +1354,7 @@ class PrecisionBreakoutDetector:
                     target_1=round(target_analysis.measured_target, 2),
                     target_2=round(target_analysis.target_2, 2) if target_analysis.target_2 else None,
                     stop_loss=round(target_analysis.invalidation_level, 2),
+                    risk_reward_ratio=actual_rr,
                     trade_quality=trade_quality_val,
                     entry_status=entry_status_val,
                     breakout_status=brk_status_val,
@@ -1586,6 +1690,9 @@ class PrecisionBreakoutDetector:
 
                 pattern_id = f"{symbol}_{timeframe}_W_{l1.timestamp}_{l2.timestamp}"
 
+                # Calculate preceding trend origin for genuine W reversal target (preceding swing high)
+                w_origin, _ = cls.extract_preceding_trend_origin(candles, swings, point_1=l1, pattern_type="W", timeframe=timeframe)
+
                 # Calculate measured target and independent invalidation / Stop Loss
                 target_analysis = cls.calculate_pattern_targets(
                     pattern_type="W",
@@ -1597,7 +1704,8 @@ class PrecisionBreakoutDetector:
                     key_supports=key_supports,
                     key_resistances=key_resistances,
                     atr_val=atr_val,
-                    sl_atr_buffer=sl_buf
+                    sl_atr_buffer=sl_buf,
+                    reversal_target=w_origin
                 )
 
                 # Scan for confirmed breakout candle strictly after Point 2 (L2)
@@ -1798,6 +1906,7 @@ class PrecisionBreakoutDetector:
                     target_1=round(target_analysis.measured_target, 2),
                     target_2=round(target_analysis.target_2, 2) if target_analysis.target_2 else None,
                     stop_loss=round(target_analysis.invalidation_level, 2),
+                    risk_reward_ratio=actual_rr,
                     trade_quality=trade_quality_val,
                     entry_status=entry_status_val,
                     breakout_status=brk_status_val,
@@ -1922,7 +2031,11 @@ class PrecisionBreakoutDetector:
                                             break
                                         
                                         sl_val = round(c_l2.low - (0.15 * atr_val), 2)
-                                        t1_val = round(c_neck.high + fast_height, 2)
+                                        w_origin, _ = cls.extract_preceding_trend_origin(candles, swings, point_1=l1, pattern_type="W", timeframe=timeframe)
+                                        if w_origin is not None and w_origin > c_neck.high:
+                                            t1_val = round(w_origin, 2)
+                                        else:
+                                            t1_val = round(c_neck.high + fast_height, 2)
                                         t2_val = round(c_neck.high + (1.618 * fast_height), 2)
                                         risk_val = max(0.0001, c_brk.close - sl_val)
                                         reward_val = max(0.0, t1_val - c_brk.close)
@@ -1995,12 +2108,15 @@ class PrecisionBreakoutDetector:
                                             key_supports=key_supports,
                                             key_resistances=key_resistances,
                                             atr_val=atr_val,
-                                            sl_atr_buffer=0.15
+                                            sl_atr_buffer=0.15,
+                                            reversal_target=w_origin
                                         )
                                         fast_pat.target_analysis = target_analysis
                                         fast_pat.target_1 = round(target_analysis.measured_target, 2)
                                         fast_pat.target_2 = round(target_analysis.target_2, 2) if target_analysis.target_2 else None
                                         fast_pat.stop_loss = round(target_analysis.invalidation_level, 2)
+                                        if target_analysis.risk_reward_ratio is not None:
+                                            fast_pat.risk_reward_ratio = round(target_analysis.risk_reward_ratio, 2)
                                         
                                         events.append(StructureBreakEvent(
                                             id=f"{symbol}_{timeframe}_W_PATTERN_BREAKOUT_{c_brk.timestamp}_{round(c_neck.high, 1)}",
@@ -2093,7 +2209,11 @@ class PrecisionBreakoutDetector:
                                             break
                                         
                                         sl_val = round(c_h2.high + (0.15 * atr_val), 2)
-                                        t1_val = round(c_neck.low - fast_height, 2)
+                                        m_origin, _ = cls.extract_preceding_trend_origin(candles, swings, point_1=h1, pattern_type="M", timeframe=timeframe)
+                                        if m_origin is not None and m_origin < c_neck.low:
+                                            t1_val = round(m_origin, 2)
+                                        else:
+                                            t1_val = round(c_neck.low - fast_height, 2)
                                         t2_val = round(c_neck.low - (1.618 * fast_height), 2)
                                         risk_val = max(0.0001, sl_val - c_brk.close)
                                         reward_val = max(0.0, c_brk.close - t1_val)
@@ -2166,12 +2286,15 @@ class PrecisionBreakoutDetector:
                                             key_supports=key_supports,
                                             key_resistances=key_resistances,
                                             atr_val=atr_val,
-                                            sl_atr_buffer=0.15
+                                            sl_atr_buffer=0.15,
+                                            reversal_target=m_origin
                                         )
                                         fast_pat.target_analysis = target_analysis
                                         fast_pat.target_1 = round(target_analysis.measured_target, 2)
                                         fast_pat.target_2 = round(target_analysis.target_2, 2) if target_analysis.target_2 else None
                                         fast_pat.stop_loss = round(target_analysis.invalidation_level, 2)
+                                        if target_analysis.risk_reward_ratio is not None:
+                                            fast_pat.risk_reward_ratio = round(target_analysis.risk_reward_ratio, 2)
                                         
                                         events.append(StructureBreakEvent(
                                             id=f"{symbol}_{timeframe}_M_PATTERN_BREAKOUT_{c_brk.timestamp}_{round(c_neck.low, 1)}",

@@ -992,7 +992,7 @@ def test_regression_h_reliance_pattern_3_m_reversal():
     assert m_pat.neckline_price == 1303.1
     assert m_pat.s2_price == 1307.5
     assert m_pat.breakout_close == 1302.6
-    assert m_pat.target_1 == 1298.0  # 1303.1 - 5.1
+    assert m_pat.target_1 == 1295.0  # Preceding bullish trend-origin swing low (prior_l)
     assert m_pat.stop_loss == 1307.79  # 1307.5 + (0.15 * 1.95)
 
 

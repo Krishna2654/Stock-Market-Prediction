@@ -196,12 +196,12 @@ def test_scenario_i_poor_risk_reward_decoupled():
     """Scenario I: Poor R:R (< 0.85) confirmed as valid market structure, marked entry_status = POOR_RR."""
     atr = 2.0
     swings = [
-        SwingPoint(index=1, price=130.0, timestamp="2026-08-25T10:05:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
+        SwingPoint(index=1, price=120.5, timestamp="2026-08-25T10:05:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
         SwingPoint(index=5, price=100.0, timestamp="2026-08-25T10:25:00Z", is_high=False, type="LL", strength=2.0, confirmed=True),
         SwingPoint(index=10, price=110.0, timestamp="2026-08-25T10:50:00Z", is_high=True, type="HH", strength=2.0, confirmed=True),
         SwingPoint(index=15, price=99.5, timestamp="2026-08-25T11:15:00Z", is_high=False, type="HL", strength=2.0, confirmed=True)
     ]
-    # Neckline = 110, Height = 10.5, T1 = 120.5, SL = 99.5 - 0.3 = 99.2.
+    # Neckline = 110, Structural T1 = 120.5, SL = 99.5 - 0.3 = 99.2.
     # Breakout candle closes at 114.0 -> Reward = 120.5 - 114.0 = 6.5, Risk = 114.0 - 99.2 = 14.8 -> R:R = 0.44 < 0.85
     candles = [Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=105, high=108, low=103, close=105, volume=1000) for i in range(25)]
     candles[18] = Candle(timestamp="2026-08-25T11:30:00Z", open=109, high=115, low=108, close=114.0, volume=2000)
