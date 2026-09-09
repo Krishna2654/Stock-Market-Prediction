@@ -288,8 +288,8 @@ class TrendlineShortlistEngine:
                 touch_points = raw_tl.get("touch_points", [])
                 touch_count = raw_tl.get("touch_count", len(touch_points))
 
-                # STRICT RULE: Must have MORE THAN 2 VALIDATED POINTS (N >= 3)
-                if touch_count < 3 or len(touch_points) < 3:
+                # Tori Trades methodology: Minimum 2 validated structural touch points
+                if touch_count < 2 or len(touch_points) < 2:
                     continue
 
                 line_type = raw_tl.get("line_type")
@@ -299,7 +299,7 @@ class TrendlineShortlistEngine:
 
                 # Linear regression and R^2 verification
                 reg_slope, reg_intercept, r_squared = self.calculate_regression_and_r2(touch_points)
-                if r_squared < 0.90:
+                if r_squared < 0.85:
                     # Reject trendlines with excessive deviation or poor goodness-of-fit
                     continue
 
@@ -326,11 +326,11 @@ class TrendlineShortlistEngine:
                 breakout_time = None
                 breakout_candle = None
 
-                # Search recent 10 candles for the initial crossing close strictly after 3rd touch
+                # Search recent 10 candles for the initial crossing close strictly after 2nd touch
                 sorted_tps = sorted(touch_points, key=lambda tp: tp.get("index", 0) if isinstance(tp, dict) else getattr(tp, "index", 0))
-                t3_idx = sorted_tps[2].get("index", 0) if isinstance(sorted_tps[2], dict) else getattr(sorted_tps[2], "index", 0)
+                min_idx = sorted_tps[1].get("index", 0) if isinstance(sorted_tps[1], dict) else getattr(sorted_tps[1], "index", 0)
                 for k in range(max(1, len(candles) - 10), len(candles)):
-                    if k <= t3_idx:
+                    if k <= min_idx:
                         continue
                     ck = candles[k]
                     prev_ck = candles[k - 1]

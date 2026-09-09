@@ -318,11 +318,11 @@ class PrecisionBreakoutDetector:
                 if tl.rank == "MINOR" or tl.strength == "MINOR":
                     continue
 
-                if tl.touch_points and len(tl.touch_points) >= 3:
-                    sorted_tps = sorted(tl.touch_points, key=lambda tp: tp.index)
-                    if i <= sorted_tps[2].index:
+                if tl.touch_points:
+                    prior_tps = [tp for tp in tl.touch_points if tp.index < i]
+                    if len(prior_tps) < 2:
                         continue
-                elif i < tl.p2_index:
+                elif i <= tl.p2_index:
                     continue
 
                 line_price = tl.p1_price + tl.slope * (i - tl.p1_index)

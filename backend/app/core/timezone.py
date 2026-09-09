@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, time as dtime
+from datetime import datetime, timezone, time as dtime, timedelta
 import zoneinfo
 from typing import Optional, Union, Dict, Any
 
@@ -104,3 +104,56 @@ def now_market_tz(tz: zoneinfo.ZoneInfo = KOLKATA_TZ) -> datetime:
     Returns current timezone-aware datetime in market timezone.
     """
     return datetime.now(tz)
+
+TIMEFRAME_MINUTES_MAP: Dict[str, int] = {
+    "1M": 1,
+    "3M": 3,
+    "5M": 5,
+    "15M": 15,
+    "30M": 30,
+    "1H": 60,
+    "60M": 60,
+    "2H": 120,
+    "4H": 240,
+    "240M": 240,
+    "1D": 1440,
+    "D": 1440,
+}
+
+def is_candle_closed(
+    candle_timestamp: Union[str, datetime, int, float],
+    timeframe: str,
+    now: Optional[datetime] = None
+) -> bool:
+    """
+    Determines if a candle has reached its timeframe close boundary.
+    A candle is completed ONLY after its actual timeframe duration has elapsed.
+    """
+    try:
+        start_dt = parse_iso_datetime(candle_timestamp)
+    except Exception:
+        return True
+
+    tf_upper = (timeframe or "15M").upper()
+    duration_min = TIMEFRAME_MINUTES_MAP.get(tf_upper, 15)
+
+    close_dt = start_dt + timedelta(minutes=duration_min)
+
+    # Session alignment for Indian equities session: session ends at 15:30 IST
+    # Only applies to non-UTC / Indian market timestamps
+    is_ist = (start_dt.tzinfo == KOLKATA_TZ) or (
+        isinstance(candle_timestamp, str) and ("+05:30" in candle_timestamp or "+0530" in candle_timestamp)
+    )
+    if is_ist:
+        ist_dt = start_dt.astimezone(KOLKATA_TZ)
+        if ist_dt.hour == 15 and (ist_dt.minute == 15 or (ist_dt.minute == 0 and duration_min >= 30)):
+            close_dt = ist_dt.replace(hour=15, minute=30, second=0, microsecond=0)
+
+    curr_now = now or datetime.now(timezone.utc)
+    if curr_now.tzinfo is None:
+        curr_now = curr_now.replace(tzinfo=timezone.utc)
+
+    close_utc = close_dt.astimezone(timezone.utc)
+    now_utc = curr_now.astimezone(timezone.utc)
+
+    return close_utc <= now_utc

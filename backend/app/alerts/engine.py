@@ -148,11 +148,11 @@ class AlertEngine:
 
                 # Formulate directional breakout title & message
                 if is_trendline_break:
-                    break_desc = "TRENDLINE BREAK"
+                    touch_prefix = "3-TOUCH" if ("3-TOUCH" in event.notes or "3+" in event.notes) else "2-TOUCH"
                     if event.direction == "BULLISH":
-                        msg = f"🟢 UP BREAKOUT — {synthesis.symbol} — {event.timeframe} | {break_desc} at {currency_sym}{event.break_price:,.2f} (Level: {currency_sym}{event.broken_level:,.2f}, Confirmed Close)"
+                        msg = f"🟢 {touch_prefix} TRENDLINE BREAK — BULLISH — UP BREAKOUT — {synthesis.symbol} — {event.timeframe} at {currency_sym}{event.break_price:,.2f} (Level: {currency_sym}{event.broken_level:,.2f}, Confirmed Close)"
                     else:
-                        msg = f"🔴 DOWN BREAKOUT — {synthesis.symbol} — {event.timeframe} | {break_desc} at {currency_sym}{event.break_price:,.2f} (Level: {currency_sym}{event.broken_level:,.2f}, Confirmed Close)"
+                        msg = f"🔴 {touch_prefix} TRENDLINE BREAK — BEARISH — DOWN BREAKOUT — {synthesis.symbol} — {event.timeframe} at {currency_sym}{event.break_price:,.2f} (Level: {currency_sym}{event.broken_level:,.2f}, Confirmed Close)"
                 elif is_resistance_break:
                     break_desc = "RESISTANCE BREAK"
                     msg = f"🟢 UP BREAKOUT — {synthesis.symbol} — {event.timeframe} | {break_desc} at {currency_sym}{event.break_price:,.2f} (Level: {currency_sym}{event.broken_level:,.2f}, Confirmed Close)"

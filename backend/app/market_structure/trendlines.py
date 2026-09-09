@@ -1,7 +1,9 @@
 from typing import List, Dict, Optional, Tuple, Literal, Any
+from datetime import datetime
 import numpy as np
 from app.models.schemas import Candle, SwingPoint, StructureBreakEvent, TrendlineSchema, TrendlineTouchPoint
 from app.core.config import settings
+from app.core.timezone import is_candle_closed
 
 class Trendline:
     def __init__(
@@ -107,7 +109,7 @@ class TrendlineDetector:
         atr: float
     ) -> List[Tuple[float, Trendline]]:
         lows = sorted([s for s in swings if not s.is_high and getattr(s, "confirmed", True)], key=lambda s: s.index)
-        if len(lows) < 3:
+        if len(lows) < 2:
             return []
 
         n = len(candles)
@@ -129,21 +131,11 @@ class TrendlineDetector:
 
                 intercept = first.price - slope * first.index
 
-                # T3 Validation: Must find at least one confirmed swing low after T2 respecting the line within 0.65 * atr
-                # User Clarification 1: Do not enforce monotonic T1.price < T2.price < T3.price if not required.
-                # User Clarification 2: Preserve existing ATR-based 0.65 * ATR touch tolerance.
-                t3_candidates = [
-                    s for s in lows
-                    if s.index > second.index and abs(s.price - (slope * s.index + intercept)) <= 0.65 * atr
-                ]
-                if not t3_candidates:
-                    continue
-
                 touches: List[SwingPoint] = [first, second]
                 violations = 0
                 deviations: List[float] = [0.0, 0.0]
 
-                # Collect all qualifying swing lows after second within tolerance
+                # Collect all qualifying swing lows after second within tolerance (0.65 * atr)
                 for s in lows:
                     if s.index <= second.index:
                         continue
@@ -157,11 +149,9 @@ class TrendlineDetector:
                 sorted_touch_indices = sorted(unique_touch_swings.keys())
                 touch_count = len(sorted_touch_indices)
 
-                # Strict requirement: at least 3 confirmed structural touches
-                if touch_count < 3:
+                # Minimum 2 confirmed structural touches
+                if touch_count < 2:
                     continue
-
-                t3_idx = sorted_touch_indices[2]
 
                 # Check candle body penetration
                 check_limit = n
@@ -175,11 +165,11 @@ class TrendlineDetector:
                         if break_index is None and k > second.index:
                             break_index = k
 
-                # If the line was broken before or at the 3rd touch, it is invalid
-                if break_index is not None and break_index <= t3_idx:
+                # If the line was broken before or at the last touch point, it cannot be a valid established line
+                if break_index is not None and break_index <= sorted_touch_indices[-1]:
                     continue
 
-                if violations > 5 and break_index is not None and break_index <= t3_idx:
+                if violations > 5 and break_index is not None and break_index <= sorted_touch_indices[-1]:
                     continue
 
                 span = sorted_touch_indices[-1] - sorted_touch_indices[0]
@@ -187,7 +177,7 @@ class TrendlineDetector:
                 recency = n - sorted_touch_indices[-1]
 
                 is_base_origin = (first.index == lows[0].index)
-                base_bonus = 150 if (is_base_origin and touch_count >= 3) else 0
+                base_bonus = 150 if (is_base_origin and touch_count >= 3) else (50 if is_base_origin else 0)
 
                 score = (
                     touch_count * 100
@@ -212,7 +202,7 @@ class TrendlineDetector:
                     status = "ACTIVE"
 
                 strength: Literal["MAJOR", "INTERMEDIATE", "MINOR"] = (
-                    "MAJOR" if touch_count >= 4 or (is_base_origin and touch_count >= 3) else "INTERMEDIATE"
+                    "MAJOR" if touch_count >= 4 or (is_base_origin and touch_count >= 3) else ("INTERMEDIATE" if touch_count >= 2 else "MINOR")
                 )
 
                 touch_point_objs = [
@@ -273,7 +263,7 @@ class TrendlineDetector:
         atr: float
     ) -> List[Tuple[float, Trendline]]:
         highs = sorted([s for s in swings if s.is_high and getattr(s, "confirmed", True)], key=lambda s: s.index)
-        if len(highs) < 3:
+        if len(highs) < 2:
             return []
 
         n = len(candles)
@@ -295,21 +285,11 @@ class TrendlineDetector:
 
                 intercept = first.price - slope * first.index
 
-                # T3 Validation: Must find at least one confirmed swing high after T2 respecting the line within 0.65 * atr
-                # User Clarification 1: Do not enforce monotonic T1.price > T2.price > T3.price if not required.
-                # User Clarification 2: Preserve existing ATR-based 0.65 * ATR touch tolerance.
-                t3_candidates = [
-                    s for s in highs
-                    if s.index > second.index and abs(s.price - (slope * s.index + intercept)) <= 0.65 * atr
-                ]
-                if not t3_candidates:
-                    continue
-
                 touches: List[SwingPoint] = [first, second]
                 violations = 0
                 deviations: List[float] = [0.0, 0.0]
 
-                # Collect all qualifying swing highs after second within tolerance
+                # Collect all qualifying swing highs after second within tolerance (0.65 * atr)
                 for s in highs:
                     if s.index <= second.index:
                         continue
@@ -323,11 +303,9 @@ class TrendlineDetector:
                 sorted_touch_indices = sorted(unique_touch_swings.keys())
                 touch_count = len(sorted_touch_indices)
 
-                # Strict requirement: at least 3 confirmed structural touches
-                if touch_count < 3:
+                # Minimum 2 confirmed structural touches
+                if touch_count < 2:
                     continue
-
-                t3_idx = sorted_touch_indices[2]
 
                 # Check candle body penetration
                 check_limit = n
@@ -341,11 +319,11 @@ class TrendlineDetector:
                         if break_index is None and k > second.index:
                             break_index = k
 
-                # If broken before or at the 3rd touch, candidate is invalid
-                if break_index is not None and break_index <= t3_idx:
+                # If broken before or at the last touch point, candidate is invalid
+                if break_index is not None and break_index <= sorted_touch_indices[-1]:
                     continue
 
-                if violations > 5 and break_index is not None and break_index <= t3_idx:
+                if violations > 5 and break_index is not None and break_index <= sorted_touch_indices[-1]:
                     continue
 
                 span = sorted_touch_indices[-1] - sorted_touch_indices[0]
@@ -353,7 +331,7 @@ class TrendlineDetector:
                 recency = n - sorted_touch_indices[-1]
 
                 is_base_origin = (first.index == highs[0].index)
-                base_bonus = 150 if (is_base_origin and touch_count >= 3) else 0
+                base_bonus = 150 if (is_base_origin and touch_count >= 3) else (50 if is_base_origin else 0)
 
                 score = (
                     touch_count * 100
@@ -378,7 +356,7 @@ class TrendlineDetector:
                     status = "ACTIVE"
 
                 strength: Literal["MAJOR", "INTERMEDIATE", "MINOR"] = (
-                    "MAJOR" if touch_count >= 4 or (is_base_origin and touch_count >= 3) else "INTERMEDIATE"
+                    "MAJOR" if touch_count >= 4 or (is_base_origin and touch_count >= 3) else ("INTERMEDIATE" if touch_count >= 2 else "MINOR")
                 )
 
                 touch_point_objs = [
@@ -481,7 +459,7 @@ class TrendlineDetector:
         swings: List[SwingPoint],
         max_lines_per_direction: int = 5
     ) -> List[Trendline]:
-        if len(candles) < 4 or len(swings) < 3:
+        if len(candles) < 4 or len(swings) < 2:
             return []
 
         atr = cls._calculate_atr(candles)
@@ -498,46 +476,119 @@ class TrendlineDetector:
         return ranked_support + ranked_resistance
 
     @classmethod
+    def find_opposing_safety_line(
+        cls,
+        trendlines: List[Trendline],
+        action_line: Trendline,
+        candle_index: int,
+        atr_val: float
+    ) -> Optional[Trendline]:
+        """
+        Finds a valid opposing Safety Line for the given action line at candle_index.
+        For ASCENDING_SUPPORT (bearish break), opposing line is DESCENDING_RESISTANCE.
+        For DESCENDING_RESISTANCE (bullish break), opposing line is ASCENDING_SUPPORT.
+        Requirements:
+        1. Formed before or at candle_index (p2_index <= candle_index).
+        2. Proximity: distance between action line and safety line <= 8.0 * atr_val.
+        3. Structural direction:
+           - For bearish breakdown of ascending support, safety resistance line should be above (or near).
+           - For bullish breakout of descending resistance, safety support line should be below (or near).
+        """
+        opposing_type = (
+            "DESCENDING_RESISTANCE"
+            if action_line.line_type == "ASCENDING_SUPPORT"
+            else "ASCENDING_SUPPORT"
+        )
+        candidates = [
+            tl for tl in trendlines
+            if tl.line_type == opposing_type and getattr(tl, "p2_index", 0) <= candle_index
+        ]
+        if not candidates:
+            return None
+
+        action_price = action_line.get_price_at_index(candle_index)
+        valid_proximity: List[Tuple[float, Trendline]] = []
+        for tl in candidates:
+            safety_price = tl.get_price_at_index(candle_index)
+            dist = abs(action_price - safety_price)
+            if dist <= 8.0 * atr_val:
+                if action_line.line_type == "ASCENDING_SUPPORT":
+                    if safety_price >= action_price - 0.5 * atr_val:
+                        valid_proximity.append((dist, tl))
+                else:
+                    if safety_price <= action_price + 0.5 * atr_val:
+                        valid_proximity.append((dist, tl))
+
+        if not valid_proximity:
+            return None
+
+        # Sort primarily by rank (PRIMARY first), then by closest proximity
+        valid_proximity.sort(key=lambda x: (0 if x[1].rank == "PRIMARY" else (1 if x[1].rank == "SECONDARY" else 2), x[0]))
+        return valid_proximity[0][1]
+
+    @classmethod
     def detect_trendline_breaks(
         cls,
         candles: List[Candle],
         trendlines: List[Trendline],
         symbol: str,
         timeframe: str,
-        atr_val: float = 1.0
+        atr_val: float = 1.0,
+        require_safety_line: bool = False,
+        now: Optional[datetime] = None
     ) -> List[StructureBreakEvent]:
         if not candles or not trendlines:
             return []
 
-        events: List[StructureBreakEvent] = []
+        # Map candle_index -> list of (priority_tuple, StructureBreakEvent)
+        events_by_candle: Dict[int, List[Tuple[Tuple[int, int, int, float], StructureBreakEvent]]] = {}
         start = max(1, len(candles) - 10)
 
         for i in range(start, len(candles)):
             current = candles[i]
             previous = candles[i - 1]
 
+            # Rule 7 & 8: Unfinished candle rejection and candle-close timing
+            if not is_candle_closed(current.timestamp, timeframe, now=now):
+                continue
+
             for tl in trendlines:
-                # Clarification 3:
-                # Explicitly guarantee touch_points are chronologically sorted and represent: T1 < T2 < T3.
-                # The breakout search must begin strictly after the confirmed chronological third touch.
-                if tl.touch_points and len(tl.touch_points) >= 3:
-                    sorted_tps = sorted(tl.touch_points, key=lambda tp: tp.index)
-                    t3_index = sorted_tps[2].index
-                    if i <= t3_index:
-                        continue
-                elif i <= tl.p2_index:
+                # Evaluates touches occurring strictly before candle i
+                if tl.touch_points:
+                    prior_touches = [tp for tp in tl.touch_points if tp.index < i]
+                else:
+                    prior_touches = [1, 2] if i > tl.p2_index else []
+
+                if len(prior_touches) < 2:
+                    continue
+
+                # Classify touch count before the breakout candle
+                touch_count_prior = len(prior_touches)
+                is_3touch = touch_count_prior >= 3
+                touch_class = "3-TOUCH" if is_3touch else "2-TOUCH"
+
+                # Opposing Safety Line check
+                safety_line = cls.find_opposing_safety_line(trendlines, tl, i, atr_val)
+                if require_safety_line and safety_line is None:
                     continue
 
                 line_now = tl.get_price_at_index(i)
                 line_previous = tl.get_price_at_index(i - 1)
 
-                # ASCENDING SUPPORT BREAK
+                # ASCENDING SUPPORT BREAK (Bearish / Short)
                 if tl.line_type == "ASCENDING_SUPPORT":
                     previous_above = previous.close >= line_previous - (0.20 * atr_val)
                     current_below = current.close < (line_now - 0.20 * atr_val)
 
                     if previous_above and current_below:
-                        events.append(StructureBreakEvent(
+                        displacement = (line_now - current.close) / atr_val
+                        score = 90 if is_3touch else 75
+                        notes = f"{touch_class} TRENDLINE BREAK — BEARISH | {tl.rank} {tl.strength.lower()} ascending support broken"
+                        if safety_line:
+                            sl_touches = len(safety_line.touch_points) if safety_line.touch_points else 2
+                            notes += f" | Safety Line: {safety_line.line_type} ({sl_touches}T)"
+
+                        ev = StructureBreakEvent(
                             id=f"{symbol}_{timeframe}_TL_BEAR_{current.timestamp}_{i}",
                             symbol=symbol,
                             timeframe=timeframe,
@@ -550,17 +601,27 @@ class TrendlineDetector:
                             volume_confirmed=current.volume > 0,
                             atr_at_break=round(atr_val, 2),
                             htf_alignment="BEARISH",
-                            evidence_score=85,
-                            notes=f"{tl.rank} {tl.strength.lower()} ascending support trendline broken"
-                        ))
+                            evidence_score=score,
+                            notes=notes
+                        )
+                        rank_tier = 2 if tl.rank == "PRIMARY" else (1 if tl.rank == "SECONDARY" else 0)
+                        priority = (2 if is_3touch else 1, rank_tier, 1 if safety_line else 0, displacement)
+                        events_by_candle.setdefault(i, []).append((priority, ev))
 
-                # DESCENDING RESISTANCE BREAK
+                # DESCENDING RESISTANCE BREAK (Bullish / Long)
                 elif tl.line_type == "DESCENDING_RESISTANCE":
                     previous_below = previous.close <= line_previous + (0.20 * atr_val)
                     current_above = current.close > (line_now + 0.20 * atr_val)
 
                     if previous_below and current_above:
-                        events.append(StructureBreakEvent(
+                        displacement = (current.close - line_now) / atr_val
+                        score = 90 if is_3touch else 75
+                        notes = f"{touch_class} TRENDLINE BREAK — BULLISH | {tl.rank} {tl.strength.lower()} descending resistance broken"
+                        if safety_line:
+                            sl_touches = len(safety_line.touch_points) if safety_line.touch_points else 2
+                            notes += f" | Safety Line: {safety_line.line_type} ({sl_touches}T)"
+
+                        ev = StructureBreakEvent(
                             id=f"{symbol}_{timeframe}_TL_BULL_{current.timestamp}_{i}",
                             symbol=symbol,
                             timeframe=timeframe,
@@ -573,8 +634,18 @@ class TrendlineDetector:
                             volume_confirmed=current.volume > 0,
                             atr_at_break=round(atr_val, 2),
                             htf_alignment="BULLISH",
-                            evidence_score=85,
-                            notes=f"{tl.rank} {tl.strength.lower()} descending resistance trendline broken"
-                        ))
+                            evidence_score=score,
+                            notes=notes
+                        )
+                        rank_tier = 2 if tl.rank == "PRIMARY" else (1 if tl.rank == "SECONDARY" else 0)
+                        priority = (2 if is_3touch else 1, rank_tier, 1 if safety_line else 0, displacement)
+                        events_by_candle.setdefault(i, []).append((priority, ev))
 
-        return events
+        # Rule 9: One directional breakout per symbol/timeframe/candle
+        final_events: List[StructureBreakEvent] = []
+        for idx in sorted(events_by_candle.keys()):
+            candle_candidates = events_by_candle[idx]
+            candle_candidates.sort(key=lambda x: x[0], reverse=True)
+            final_events.append(candle_candidates[0][1])
+
+        return final_events
