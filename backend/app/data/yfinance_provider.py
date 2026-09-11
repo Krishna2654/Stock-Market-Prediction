@@ -38,6 +38,20 @@ class YahooFinanceProvider(MarketDataProvider):
         self._retry_attempts = 2
         self._backoff_factor = 1.0
 
+    _semaphore: Optional[asyncio.Semaphore] = None
+    _semaphore_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @classmethod
+    def _get_semaphore(cls) -> asyncio.Semaphore:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if cls._semaphore is None or cls._semaphore_loop != loop:
+            cls._semaphore = asyncio.Semaphore(3)
+            cls._semaphore_loop = loop
+        return cls._semaphore
+
     @property
     def provider_name(self) -> str:
         return "Yahoo Finance (Live Exchange Feed)"
@@ -128,7 +142,8 @@ class YahooFinanceProvider(MarketDataProvider):
     ) -> List[Candle]:
         # If date range is requested, bypass the short-term live TTL cache
         if start is not None or end is not None:
-            return await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit, start, end)
+            async with self._get_semaphore():
+                return await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit, start, end)
 
         cache_key = self._get_cache_key(ticker, timeframe)
         now = time.time()
@@ -149,7 +164,8 @@ class YahooFinanceProvider(MarketDataProvider):
 
         async def _do_fetch() -> List[Candle]:
             try:
-                candles = await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit, None, None)
+                async with self._get_semaphore():
+                    candles = await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit, None, None)
                 if candles:
                     self._cache[cache_key] = {
                         "timestamp": time.time(),

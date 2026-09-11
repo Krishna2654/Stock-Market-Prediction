@@ -65,10 +65,16 @@ export const api = {
     return res.json();
   },
 
-  getOverview: async (): Promise<MultiTimeframeSynthesis[]> => {
-    const res = await fetch(`${API_BASE}/analysis/overview`);
-    if (!res.ok) throw new Error('Failed to fetch market overview');
-    return res.json();
+  getOverview: async (timeoutMs: number = 8000): Promise<MultiTimeframeSynthesis[]> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${API_BASE}/analysis/overview`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`Failed to fetch market overview: ${res.status}`);
+      return await res.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
   },
 
   getInstrumentDetail: async (symbol: string): Promise<MultiTimeframeSynthesis> => {

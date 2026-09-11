@@ -230,7 +230,50 @@ const AppContent: React.FC = () => {
         console.warn('Post-overview sync warning:', e);
       }
     } catch (err) {
-      console.error('Failed to load overview:', err);
+      console.error('Failed to load overview, falling back to fast-overview:', err);
+      try {
+        const fastList = await api.getFastOverview();
+        if (fastList && fastList.length > 0) {
+          setSyntheses((prev) => {
+            const next = { ...prev };
+            fastList.forEach((item: any) => {
+              if (!next[item.symbol]) {
+                next[item.symbol] = {
+                  symbol: item.symbol,
+                  ticker: item.ticker,
+                  provider: 'yfinance',
+                  data_status: item.data_status || 'LIVE',
+                  market_session: item.market_session,
+                  last_updated: item.last_updated,
+                  is_stale: true,
+                  status_message: 'Fast Baseline Data',
+                  current_price: item.current_price,
+                  timeframes: {},
+                  overall_bias: item.overall_bias || 'NEUTRAL',
+                  current_state: 'NO CLEAR STRUCTURE',
+                  evidence_score: {
+                    total_score: item.evidence_score || 50,
+                    category: 'Mixed Evidence',
+                    structure_points: 10,
+                    htf_alignment_points: 10,
+                    momentum_points: 10,
+                    volume_points: 10,
+                    breakout_points: 10,
+                    details: []
+                  },
+                  key_supports: [],
+                  key_resistances: [],
+                  predictive_scenarios: {},
+                  confirmation_state: 'Active'
+                } as any;
+              }
+            });
+            return next;
+          });
+        }
+      } catch (fastErr) {
+        console.warn('Fast overview fallback warning:', fastErr);
+      }
     } finally {
       setIsLoading(false);
     }

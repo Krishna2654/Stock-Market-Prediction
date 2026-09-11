@@ -38,6 +38,8 @@ class CatchupEngine:
     9. Decoupled Persistence: Persists 100% of valid missed events to SQL history without firing live notification toast audio spam.
     """
 
+    _active_recoveries: set = set()
+
     @staticmethod
     def _parse_timestamp(ts_str: str) -> datetime:
         clean = ts_str.replace("Z", "+00:00").replace(" ", "T")
@@ -128,7 +130,45 @@ class CatchupEngine:
     ) -> Dict[str, Any]:
         """
         Recovers missed completed candles for a single (symbol, timeframe).
-        Returns a recovery report with candles processed, events persisted, and exact timestamps.
+        Deduplicates concurrent recovery attempts for the same instrument-timeframe.
+        """
+        recovery_key = (symbol.upper(), timeframe.upper())
+        if recovery_key in cls._active_recoveries:
+            logger.info(f"[CatchupEngine] Recovery already in progress for {symbol} ({timeframe}), skipping redundant call.")
+            return {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "status": "ALREADY_IN_PROGRESS",
+                "candles_processed": 0,
+                "events_persisted": 0,
+                "processed_timestamps": []
+            }
+
+        cls._active_recoveries.add(recovery_key)
+        try:
+            return await cls._do_recover_instrument_timeframe(
+                symbol=symbol,
+                ticker=ticker,
+                timeframe=timeframe,
+                provider=provider,
+                max_fetch_limit=max_fetch_limit,
+                context_history_bars=context_history_bars
+            )
+        finally:
+            cls._active_recoveries.discard(recovery_key)
+
+    @classmethod
+    async def _do_recover_instrument_timeframe(
+        cls,
+        symbol: str,
+        ticker: str,
+        timeframe: str,
+        provider: MarketDataProvider,
+        max_fetch_limit: int = 500,
+        context_history_bars: int = 200
+    ) -> Dict[str, Any]:
+        """
+        Internal implementation of single instrument-timeframe recovery.
         """
         # 1. Read existing checkpoint
         checkpoint = CheckpointRepository.get_checkpoint_sync(symbol, timeframe)

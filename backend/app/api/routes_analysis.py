@@ -25,9 +25,12 @@ from app.alerts.mw_breakout_engine import mw_breakout_engine
 from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
 from app.api.websocket import ws_manager
 
+import logging
 from pathlib import Path
 import json
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -36,6 +39,7 @@ _CACHE_FILE = Path(__file__).resolve().parents[2] / "data" / "market_synthesis_c
 _synthesis_cache: Dict[str, Tuple[float, MultiTimeframeSynthesis]] = {}
 _chart_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _chart_in_flight: Dict[str, asyncio.Task] = {}
+_refresh_tasks: Dict[str, asyncio.Task] = {}
 
 def _load_disk_cache():
     if _CACHE_FILE.exists():
@@ -110,22 +114,81 @@ async def get_fast_overview():
             })
     return summary
 
+def _create_lightweight_synthesis(symbol: str, ticker: str, provider_name: str) -> MultiTimeframeSynthesis:
+    """
+    Constructs an immediate baseline synthesis in 0ms when no cache exists at all,
+    ensuring HTTP responses never block waiting for network providers.
+    """
+    return MultiTimeframeAnalyzer.synthesize(
+        symbol=symbol,
+        ticker=ticker,
+        provider_name=provider_name,
+        mtf_candles={},
+        is_stale=True,
+        status_message="Initializing Live Market Analysis",
+        data_status="LIVE"
+    )
+
+def _schedule_background_refresh(symbol: str, ticker: str, provider):
+    """
+    Schedules an asynchronous background refresh for an instrument's synthesis.
+    Deduplicates tasks so that only one background refresh runs per symbol.
+    """
+    existing_task = _refresh_tasks.get(symbol)
+    if existing_task and not existing_task.done():
+        return existing_task
+
+    async def _do_refresh():
+        try:
+            synth = await _analyze_instrument(symbol, ticker, provider)
+            update_synthesis_cache(symbol, synth)
+
+            # Broadcast WebSocket updates and evaluate alerts
+            try:
+                alert_engine.process_synthesis_for_alerts(synth)
+            except Exception:
+                pass
+            try:
+                high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synth)
+            except Exception:
+                pass
+            try:
+                mw_breakout_engine.process_synthesis_with_updates(synth)
+            except Exception:
+                pass
+            try:
+                trendline_shortlist_engine.process_synthesis(synth)
+            except Exception:
+                pass
+
+            asyncio.create_task(ws_manager.broadcast({
+                "type": "SYNTHESIS_UPDATE",
+                "symbol": symbol,
+                "data": synth.model_dump()
+            }))
+        except Exception as e:
+            logger.warning(f"[RoutesAnalysis] Background refresh error for {symbol}: {e}")
+        finally:
+            _refresh_tasks.pop(symbol, None)
+
+    task = asyncio.create_task(_do_refresh())
+    _refresh_tasks[symbol] = task
+    return task
+
 async def _analyze_instrument_cached(symbol: str, ticker: str, provider) -> MultiTimeframeSynthesis:
     now = time.time()
     if symbol in _synthesis_cache:
         cached_time, cached_synth = _synthesis_cache[symbol]
-        if (now - cached_time) < 120.0:  # Fresh for 120s
-            return cached_synth
+        if (now - cached_time) >= 120.0:
+            # Stale-while-revalidate: schedule refresh in background, return cached data immediately
+            _schedule_background_refresh(symbol, ticker, provider)
+        return cached_synth
 
-    # Fetch fresh with fallback to cached
-    try:
-        synth = await _analyze_instrument(symbol, ticker, provider)
-        _synthesis_cache[symbol] = (now, synth)
-        return synth
-    except Exception as e:
-        if symbol in _synthesis_cache:
-            return _synthesis_cache[symbol][1]
-        raise e
+    # Cache miss: construct lightweight placeholder immediately (<1ms) and schedule deep analysis
+    synth = _create_lightweight_synthesis(symbol, ticker, provider.provider_name)
+    _synthesis_cache[symbol] = (now, synth)
+    _schedule_background_refresh(symbol, ticker, provider)
+    return synth
 
 @router.get("/overview", response_model=List[MultiTimeframeSynthesis])
 async def get_all_instruments_overview():

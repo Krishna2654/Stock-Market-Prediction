@@ -51,6 +51,7 @@ class MarketProcessingWorker:
         self.timeframes = timeframes or ["4H", "1H", "15M", "5M"]
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._catchup_task: Optional[asyncio.Task] = None
         self.catchup_engine = CatchupEngine
 
     def get_provider(self) -> MarketDataProvider:
@@ -78,11 +79,20 @@ class MarketProcessingWorker:
         )
         return report
 
+    async def _safe_run_catchup(self):
+        try:
+            await asyncio.sleep(1.0)
+            await self.run_catchup()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"[MarketProcessingWorker] Background catch-up failed: {e}")
+
     async def start(self, run_catchup_inline: bool = False):
         """
         Starts the background worker.
         If run_catchup_inline is True, awaits recovery before launching loop.
-        Otherwise, runs recovery as the first step of the background task.
+        Otherwise, runs recovery as a decoupled background task.
         """
         if self._running:
             logger.warning("[MarketProcessingWorker] Worker already running.")
@@ -94,9 +104,11 @@ class MarketProcessingWorker:
                 await self.run_catchup()
             except Exception as e:
                 logger.error(f"[MarketProcessingWorker] Inline catch-up error: {e}")
+        else:
+            self._catchup_task = asyncio.create_task(self._safe_run_catchup())
 
         self._task = asyncio.create_task(
-            self._run_loop(run_catchup_first=not run_catchup_inline)
+            self._run_loop(run_catchup_first=False)
         )
         logger.info("[MarketProcessingWorker] Background worker started successfully.")
 
@@ -109,6 +121,14 @@ class MarketProcessingWorker:
 
         logger.info("[MarketProcessingWorker] Stopping background worker...")
         self._running = False
+        if self._catchup_task and not self._catchup_task.done():
+            self._catchup_task.cancel()
+            try:
+                await self._catchup_task
+            except asyncio.CancelledError:
+                pass
+        self._catchup_task = None
+
         if self._task and not self._task.done():
             self._task.cancel()
             try:
@@ -121,15 +141,11 @@ class MarketProcessingWorker:
     async def _run_loop(self, run_catchup_first: bool = True):
         """
         Main worker execution loop.
+        Immediately starts the monitoring cycle to prime live data and cache,
+        while decoupling catch-up into a dedicated background task.
         """
         if run_catchup_first:
-            try:
-                await asyncio.sleep(1)
-                await self.run_catchup()
-            except asyncio.CancelledError:
-                return
-            except Exception as e:
-                logger.error(f"[MarketProcessingWorker] Startup catch-up failed: {e}")
+            self._catchup_task = asyncio.create_task(self._safe_run_catchup())
 
         logger.info("[MarketProcessingWorker] Entering continuous 24/7 market monitoring loop.")
         while self._running:
