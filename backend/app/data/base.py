@@ -1,3 +1,4 @@
+from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
 import pandas as pd
@@ -21,11 +22,14 @@ class MarketDataProvider(ABC):
         symbol: str,
         ticker: str,
         timeframe: str,
-        limit: int = 300
+        limit: int = 300,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None
     ) -> List[Candle]:
         """
         Fetch OHLCV candles for a given ticker and timeframe.
         Timeframe: "4H", "1H", "15M", "5M"
+        Optional start and end datetimes define an exact historical range.
         """
         pass
 

@@ -53,7 +53,14 @@ class YahooFinanceProvider(MarketDataProvider):
             self._ticker_instances[ticker] = yf.Ticker(ticker)
         return self._ticker_instances[ticker]
 
-    def _sync_fetch(self, ticker: str, timeframe: str, limit: int) -> List[Candle]:
+    def _sync_fetch(
+        self,
+        ticker: str,
+        timeframe: str,
+        limit: int,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None
+    ) -> List[Candle]:
         tf_config = {
             "5M": {"interval": "5m", "period": "60d"},
             "15M": {"interval": "15m", "period": "60d"},
@@ -66,7 +73,10 @@ class YahooFinanceProvider(MarketDataProvider):
         
         for attempt in range(self._retry_attempts):
             try:
-                df = t.history(period=cfg["period"], interval=cfg["interval"], auto_adjust=False, raise_errors=False)
+                if start is not None or end is not None:
+                    df = t.history(start=start, end=end, interval=cfg["interval"], auto_adjust=False, raise_errors=False)
+                else:
+                    df = t.history(period=cfg["period"], interval=cfg["interval"], auto_adjust=False, raise_errors=False)
                 
                 if df is None or df.empty:
                     if attempt < self._retry_attempts - 1:
@@ -90,7 +100,8 @@ class YahooFinanceProvider(MarketDataProvider):
                 # Aggregate with session awareness
                 aggregated = SessionAwareCandleBuilder.aggregate_candles(raw_candles, timeframe, ticker)
                 
-                if len(aggregated) > limit:
+                # Truncate to limit ONLY when not requesting a specific date range
+                if start is None and end is None and len(aggregated) > limit:
                     aggregated = aggregated[-limit:]
                     
                 normalized, _, _ = DataNormalizer.normalize_candles(aggregated)
@@ -111,8 +122,14 @@ class YahooFinanceProvider(MarketDataProvider):
         symbol: str,
         ticker: str,
         timeframe: str,
-        limit: int = 300
+        limit: int = 300,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None
     ) -> List[Candle]:
+        # If date range is requested, bypass the short-term live TTL cache
+        if start is not None or end is not None:
+            return await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit, start, end)
+
         cache_key = self._get_cache_key(ticker, timeframe)
         now = time.time()
         ttl = self._cache_ttl_seconds.get(timeframe, 45)
@@ -132,7 +149,7 @@ class YahooFinanceProvider(MarketDataProvider):
 
         async def _do_fetch() -> List[Candle]:
             try:
-                candles = await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit)
+                candles = await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit, None, None)
                 if candles:
                     self._cache[cache_key] = {
                         "timestamp": time.time(),

@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, time as dtime
 
 from app.models.schemas import (
     Candle,
@@ -12,6 +12,7 @@ from app.models.schemas import (
 )
 from app.db.repository import CheckpointRepository
 from app.data.base import MarketDataProvider
+from app.data.candle_builder import SessionAwareCandleBuilder, KOLKATA_TZ
 from app.multi_timeframe.analyzer import SingleTimeframeAnalyzer
 from app.multi_timeframe.synthesis import MultiTimeframeAnalyzer
 from app.alerts.engine import alert_engine
@@ -28,10 +29,92 @@ class CatchupEngine:
     Guarantees:
     1. Checkpoint-Driven: Inspects processing_checkpoints table for (symbol, timeframe).
     2. Chronological Replay: Replays all missed completed candles after checkpoint with full historical context.
-    3. Idempotent Ingestion: Zero duplicate records in SQLite upon replay.
-    4. Decoupled Persistence: Persists 100% of valid missed events to SQL history without firing live notification toast audio spam.
-    5. Atomic Advancement: Checkpoint advances only after successful processing of completed candles.
+    3. Multi-Chunk & Arbitrary Gap Ingestion: Not hardcoded to 4 days; recovers 1,152 (4d 5M), 2,880 (10d 5M), or arbitrary outages.
+    4. Safe Failure & Atomicity: Checkpoint advances per completed candle. If a chunk fails, checkpoint stays at last successfully processed candle.
+    5. Zero Silent Data-Loss: Gaps beyond provider retention are explicitly flagged with GAP_DETECTED status and never falsely marked SYNCED.
+    6. Context Parity: Uses 200-bar sliding context window matching live worker loop for full indicator and trendline convergence.
+    7. Continuity Validation: Verifies continuous intervals for crypto, whilst respecting legitimate overnight/weekend equity session breaks.
+    8. Idempotent Ingestion: Zero duplicate records in SQLite upon replay.
+    9. Decoupled Persistence: Persists 100% of valid missed events to SQL history without firing live notification toast audio spam.
     """
+
+    @staticmethod
+    def _parse_timestamp(ts_str: str) -> datetime:
+        clean = ts_str.replace("Z", "+00:00").replace(" ", "T")
+        try:
+            dt = datetime.fromisoformat(clean)
+        except Exception:
+            dt = datetime.strptime(ts_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    @staticmethod
+    def _get_timeframe_seconds(timeframe: str) -> int:
+        tf_upper = timeframe.upper()
+        if tf_upper in ["1M", "1MIN"]: return 60
+        if tf_upper in ["3M", "3MIN"]: return 180
+        if tf_upper in ["5M", "5MIN"]: return 300
+        if tf_upper in ["15M", "15MIN"]: return 900
+        if tf_upper in ["30M", "30MIN"]: return 1800
+        if tf_upper in ["1H", "60M"]: return 3600
+        if tf_upper in ["4H", "240M"]: return 14400
+        if tf_upper in ["1D", "D"]: return 86400
+        return 300
+
+    @staticmethod
+    def _get_provider_max_retention_days(timeframe: str) -> int:
+        tf_upper = timeframe.upper()
+        if tf_upper in ["5M", "15M"]:
+            return 60
+        if tf_upper in ["1H", "4H"]:
+            return 730
+        return 60
+
+    @classmethod
+    def validate_continuity(
+        cls,
+        candles: List[Candle],
+        timeframe: str,
+        ticker: str
+    ) -> Tuple[bool, List[str]]:
+        if len(candles) < 2:
+            return True, []
+
+        is_crypto = SessionAwareCandleBuilder.is_crypto(ticker)
+        expected_step = cls._get_timeframe_seconds(timeframe)
+        gaps: List[str] = []
+
+        for i in range(1, len(candles)):
+            prev_c = candles[i - 1]
+            curr_c = candles[i]
+            prev_dt = cls._parse_timestamp(prev_c.timestamp)
+            curr_dt = cls._parse_timestamp(curr_c.timestamp)
+            diff_secs = (curr_dt - prev_dt).total_seconds()
+
+            if diff_secs <= expected_step:
+                continue
+
+            if is_crypto:
+                gaps.append(
+                    f"Crypto missing candle gap: {prev_c.timestamp} -> {curr_c.timestamp} "
+                    f"({int(diff_secs)}s elapsed vs expected {expected_step}s)"
+                )
+            else:
+                prev_local = prev_dt.astimezone(KOLKATA_TZ)
+                curr_local = curr_dt.astimezone(KOLKATA_TZ)
+                is_session_boundary = (
+                    prev_local.time() >= dtime(15, 15)
+                    and curr_local.time() <= dtime(9, 30)
+                    and curr_local.date() > prev_local.date()
+                )
+                if not is_session_boundary:
+                    gaps.append(
+                        f"Equity intraday gap: {prev_c.timestamp} -> {curr_c.timestamp} "
+                        f"({int(diff_secs)}s elapsed within trading hours)"
+                    )
+
+        return len(gaps) == 0, gaps
 
     @classmethod
     async def recover_instrument_timeframe(
@@ -41,55 +124,55 @@ class CatchupEngine:
         timeframe: str,
         provider: MarketDataProvider,
         max_fetch_limit: int = 500,
-        context_history_bars: int = 120
+        context_history_bars: int = 200
     ) -> Dict[str, Any]:
         """
         Recovers missed completed candles for a single (symbol, timeframe).
-        Returns a recovery report with candles processed and events persisted.
+        Returns a recovery report with candles processed, events persisted, and exact timestamps.
         """
         # 1. Read existing checkpoint
         checkpoint = CheckpointRepository.get_checkpoint_sync(symbol, timeframe)
         last_processed_ts = checkpoint.last_processed_candle_timestamp if checkpoint else None
 
-        # 2. Fetch candles from provider
-        try:
-            raw_candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=max_fetch_limit)
-        except Exception as e:
-            logger.error(f"[CatchupEngine] Failed to fetch candles for {symbol} ({timeframe}): {e}")
-            return {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "status": "FETCH_ERROR",
-                "error": str(e),
-                "candles_processed": 0,
-                "events_persisted": 0
-            }
-
-        if not raw_candles:
-            return {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "status": "NO_DATA",
-                "candles_processed": 0,
-                "events_persisted": 0
-            }
-
-        # Filter strictly for completed candles
-        completed_candles = [c for c in raw_candles if is_candle_closed(c.timestamp, timeframe)]
-        if not completed_candles:
-            return {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "status": "NO_COMPLETED_CANDLES",
-                "candles_processed": 0,
-                "events_persisted": 0
-            }
-
-        # 3. Determine missed candles
+        # 2. Bootstrap initial checkpoint if none exists
         if last_processed_ts is None:
-            # First-time bootstrap:
-            # Process the current window, persist valid events, and initialize checkpoint to latest completed candle
-            logger.info(f"[CatchupEngine] Initial bootstrap for {symbol} ({timeframe}) with {len(completed_candles)} candles.")
+            try:
+                raw_candles = await provider.fetch_candles(
+                    symbol, ticker, timeframe, limit=context_history_bars
+                )
+            except Exception as e:
+                logger.error(f"[CatchupEngine] Failed to bootstrap candles for {symbol} ({timeframe}): {e}")
+                return {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "status": "FETCH_ERROR",
+                    "error": str(e),
+                    "candles_processed": 0,
+                    "events_persisted": 0,
+                    "processed_timestamps": []
+                }
+
+            if not raw_candles:
+                return {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "status": "NO_DATA",
+                    "candles_processed": 0,
+                    "events_persisted": 0,
+                    "processed_timestamps": []
+                }
+
+            completed_candles = [c for c in raw_candles if is_candle_closed(c.timestamp, timeframe)]
+            if not completed_candles:
+                return {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "status": "NO_COMPLETED_CANDLES",
+                    "candles_processed": 0,
+                    "events_persisted": 0,
+                    "processed_timestamps": []
+                }
+
             latest_c = completed_candles[-1]
             cls._process_and_persist_slice(
                 completed_candles, symbol, ticker, timeframe, is_catchup=True
@@ -106,85 +189,257 @@ class CatchupEngine:
                 "timeframe": timeframe,
                 "status": "BOOTSTRAP_COMPLETE",
                 "candles_processed": len(completed_candles),
-                "last_checkpoint": latest_c.timestamp
+                "last_checkpoint": latest_c.timestamp,
+                "processed_timestamps": [latest_c.timestamp]
             }
 
-        # Find where last_processed_ts sits in completed_candles
-        missed_candles: List[Candle] = []
-        matching_idx = None
-        for i, c in enumerate(completed_candles):
-            if c.timestamp == last_processed_ts:
-                matching_idx = i
-                break
+        # 3. Checkpoint exists - determine date bounds and provider retention
+        checkpoint_dt = cls._parse_timestamp(last_processed_ts)
+        now_utc = datetime.now(timezone.utc)
+        step_seconds = cls._get_timeframe_seconds(timeframe)
+        is_crypto = SessionAwareCandleBuilder.is_crypto(ticker)
 
-        if matching_idx is not None:
-            missed_candles = completed_candles[matching_idx + 1:]
-        else:
-            # Checkpoint is older than the oldest candle in completed_candles
-            # or checkpoint timestamp format: take all candles strictly greater than last_processed_ts
-            missed_candles = [c for c in completed_candles if c.timestamp > last_processed_ts]
+        # Warmup buffer prior to checkpoint for context
+        warmup_seconds = context_history_bars * step_seconds * (4 if not is_crypto else 1)
+        warmup_start_dt = checkpoint_dt - timedelta(seconds=warmup_seconds)
 
-        if not missed_candles:
-            logger.debug(f"[CatchupEngine] {symbol} ({timeframe}) is already up-to-date at {last_processed_ts}.")
-            return {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "status": "ALREADY_UP_TO_DATE",
-                "candles_processed": 0,
-                "last_checkpoint": last_processed_ts
-            }
+        # Check provider maximum retention
+        max_retention_days = cls._get_provider_max_retention_days(timeframe)
+        earliest_provider_dt = now_utc - timedelta(days=max_retention_days)
+        is_unrecoverable_retention_gap = checkpoint_dt < earliest_provider_dt
 
-        logger.info(
-            f"[CatchupEngine] Recovering {len(missed_candles)} missed candles for {symbol} ({timeframe}) "
-            f"since {last_processed_ts} -> {missed_candles[-1].timestamp}"
-        )
+        # 4. Multi-Chunk Ingestion Loop
+        current_checkpoint_ts = last_processed_ts
+        total_candles_processed = 0
+        total_events_persisted = 0
+        all_processed_timestamps: List[str] = []
+        is_gap_detected = is_unrecoverable_retention_gap
+        chunk_iteration = 0
+        max_chunks = 100
 
-        # 4. Chronological Replay with Sliding Context Window
-        # For each missed candle, slice historical context up to that candle and run detection
-        events_persisted_total = 0
-        successful_processed_count = 0
+        # Accumulated master candle history for sliding context
+        history_candles_by_ts: Dict[str, Candle] = {}
 
-        for missed_c in missed_candles:
-            idx_in_completed = completed_candles.index(missed_c)
-            # Take historical context leading into this candle (e.g. 100-200 bars)
-            start_idx = max(0, idx_in_completed - context_history_bars + 1)
-            candle_slice = completed_candles[start_idx : idx_in_completed + 1]
+        while chunk_iteration < max_chunks:
+            chunk_iteration += 1
+            curr_cp_dt = cls._parse_timestamp(current_checkpoint_ts)
+            chunk_start_dt = curr_cp_dt - timedelta(seconds=warmup_seconds)
 
             try:
-                new_events = cls._process_and_persist_slice(
-                    candle_slice, symbol, ticker, timeframe, is_catchup=True
+                raw_chunk = await provider.fetch_candles(
+                    symbol=symbol,
+                    ticker=ticker,
+                    timeframe=timeframe,
+                    limit=max_fetch_limit,
+                    start=chunk_start_dt,
+                    end=now_utc
                 )
-                events_persisted_total += new_events
-                successful_processed_count += 1
+            except Exception as fetch_err:
+                logger.error(f"[CatchupEngine] Fetch error for {symbol} ({timeframe}) on chunk {chunk_iteration}: {fetch_err}")
+                if current_checkpoint_ts:
+                    CheckpointRepository.update_checkpoint_sync(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        last_candle_timestamp=current_checkpoint_ts,
+                        processed_count=0,
+                        status="RECOVERING"
+                    )
+                return {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "status": "RECOVERING",
+                    "error": str(fetch_err),
+                    "candles_processed": total_candles_processed,
+                    "events_persisted": total_events_persisted,
+                    "last_checkpoint": current_checkpoint_ts,
+                    "processed_timestamps": all_processed_timestamps
+                }
 
-                # Advance checkpoint atomically for this candle
-                CheckpointRepository.update_checkpoint_sync(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    last_candle_timestamp=missed_c.timestamp,
-                    processed_count=1,
-                    status="SYNCED"
-                )
-            except Exception as slice_err:
-                logger.error(
-                    f"[CatchupEngine] Error processing candle {missed_c.timestamp} for {symbol} ({timeframe}): {slice_err}"
-                )
-                CheckpointRepository.update_checkpoint_sync(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    last_candle_timestamp=checkpoint.last_processed_candle_timestamp if successful_processed_count == 0 else completed_candles[idx_in_completed - 1].timestamp,
-                    processed_count=0,
-                    status="RECOVERING"
-                )
+            if not raw_chunk:
                 break
 
+            # Add to accumulated history
+            for c in raw_chunk:
+                history_candles_by_ts[c.timestamp] = c
+
+            # Filter completed candles in chronological order
+            completed_in_history = sorted(
+                [c for c in history_candles_by_ts.values() if is_candle_closed(c.timestamp, timeframe)],
+                key=lambda c: c.timestamp
+            )
+
+            # Check where current_checkpoint_ts sits
+            matching_idx = None
+            for idx, c in enumerate(completed_in_history):
+                if c.timestamp == current_checkpoint_ts:
+                    matching_idx = idx
+                    break
+
+            if matching_idx is None:
+                # The current checkpoint is older than the oldest candle currently fetched
+                # Check if we can fetch older chunks (backwards pagination)
+                oldest_in_history_dt = cls._parse_timestamp(completed_in_history[0].timestamp)
+                while not is_unrecoverable_retention_gap and oldest_in_history_dt > curr_cp_dt:
+                    try:
+                        older_chunk = await provider.fetch_candles(
+                            symbol=symbol,
+                            ticker=ticker,
+                            timeframe=timeframe,
+                            limit=max_fetch_limit,
+                            start=chunk_start_dt,
+                            end=oldest_in_history_dt
+                        )
+                    except Exception as older_err:
+                        logger.warning(f"[CatchupEngine] Failed to fetch older chunk for {symbol} ({timeframe}): {older_err}")
+                        break
+
+                    if not older_chunk:
+                        break
+
+                    added_count = 0
+                    for c in older_chunk:
+                        if c.timestamp not in history_candles_by_ts:
+                            history_candles_by_ts[c.timestamp] = c
+                            added_count += 1
+                    if added_count == 0:
+                        break
+
+                    completed_in_history = sorted(
+                        [c for c in history_candles_by_ts.values() if is_candle_closed(c.timestamp, timeframe)],
+                        key=lambda c: c.timestamp
+                    )
+                    for idx, c in enumerate(completed_in_history):
+                        if c.timestamp == current_checkpoint_ts:
+                            matching_idx = idx
+                            break
+                    if matching_idx is not None:
+                        break
+
+                    new_oldest_dt = cls._parse_timestamp(completed_in_history[0].timestamp)
+                    if new_oldest_dt >= oldest_in_history_dt:
+                        break
+                    oldest_in_history_dt = new_oldest_dt
+
+                # If still None after attempting older chunk fetch, an unbridgeable gap exists
+                if matching_idx is None:
+                    is_gap_detected = True
+                    logger.warning(
+                        f"[CatchupEngine] GAP_DETECTED for {symbol} ({timeframe}): "
+                        f"Checkpoint {current_checkpoint_ts} cannot be bridged to oldest available candle {completed_in_history[0].timestamp}."
+                    )
+                    missed_candles = [c for c in completed_in_history if c.timestamp > current_checkpoint_ts]
+                else:
+                    missed_candles = completed_in_history[matching_idx + 1:]
+            else:
+                missed_candles = completed_in_history[matching_idx + 1:]
+
+            if not missed_candles:
+                break
+
+            # Validate continuity
+            is_cont, cont_gaps = cls.validate_continuity(completed_in_history, timeframe, ticker)
+            if not is_cont and not is_gap_detected:
+                for cg in cont_gaps:
+                    logger.warning(f"[CatchupEngine] Continuity notice for {symbol} ({timeframe}): {cg}")
+
+            # Take the current chunk of missed candles to process
+            chunk_to_process = missed_candles[:max_fetch_limit]
+
+            # Replay chronologically with 200-bar sliding context
+            idx_by_ts = {c.timestamp: i for i, c in enumerate(completed_in_history)}
+            for missed_c in chunk_to_process:
+                idx_in_completed = idx_by_ts.get(missed_c.timestamp)
+                if idx_in_completed is None:
+                    continue
+                start_idx = max(0, idx_in_completed - context_history_bars + 1)
+                candle_slice = completed_in_history[start_idx : idx_in_completed + 1]
+
+                try:
+                    new_events = cls._process_and_persist_slice(
+                        candle_slice, symbol, ticker, timeframe, is_catchup=True
+                    )
+                    total_events_persisted += new_events
+                    total_candles_processed += 1
+                    all_processed_timestamps.append(missed_c.timestamp)
+                    current_checkpoint_ts = missed_c.timestamp
+
+                    # Checkpoint safety: commit after every single candle
+                    checkpoint_status = "GAP_DETECTED" if is_gap_detected else "SYNCED"
+                    CheckpointRepository.update_checkpoint_sync(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        last_candle_timestamp=missed_c.timestamp,
+                        processed_count=1,
+                        status=checkpoint_status
+                    )
+                except Exception as slice_err:
+                    logger.error(
+                        f"[CatchupEngine] Error processing candle {missed_c.timestamp} for {symbol} ({timeframe}): {slice_err}"
+                    )
+                    CheckpointRepository.update_checkpoint_sync(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        last_candle_timestamp=current_checkpoint_ts,
+                        processed_count=0,
+                        status="RECOVERING"
+                    )
+                    return {
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "status": "RECOVERING",
+                        "error": str(slice_err),
+                        "candles_processed": total_candles_processed,
+                        "events_persisted": total_events_persisted,
+                        "last_checkpoint": current_checkpoint_ts,
+                        "processed_timestamps": all_processed_timestamps
+                    }
+
+            # If all missed candles currently in memory were processed:
+            # Check if the provider's returned batch was full (len(raw_chunk) >= max_fetch_limit).
+            # If it was full, more chunks may exist from the provider, so continue fetching.
+            # If it was less than max_fetch_limit, provider has returned all data up to now.
+            if len(chunk_to_process) == len(missed_candles) and len(raw_chunk) < max_fetch_limit:
+                break
+
+        # Check if already up-to-date
+        if total_candles_processed == 0:
+            if is_gap_detected:
+                CheckpointRepository.update_checkpoint_sync(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    last_candle_timestamp=last_processed_ts,
+                    processed_count=0,
+                    status="GAP_DETECTED"
+                )
+                return {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "status": "GAP_DETECTED",
+                    "candles_processed": 0,
+                    "events_persisted": 0,
+                    "last_checkpoint": last_processed_ts,
+                    "processed_timestamps": []
+                }
+            else:
+                return {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "status": "ALREADY_UP_TO_DATE",
+                    "candles_processed": 0,
+                    "events_persisted": 0,
+                    "last_checkpoint": last_processed_ts,
+                    "processed_timestamps": []
+                }
+
+        final_status = "GAP_DETECTED" if is_gap_detected else "RECOVERY_COMPLETE"
         return {
             "symbol": symbol,
             "timeframe": timeframe,
-            "status": "RECOVERY_COMPLETE",
-            "candles_processed": successful_processed_count,
-            "events_persisted": events_persisted_total,
-            "last_checkpoint": missed_candles[successful_processed_count - 1].timestamp if successful_processed_count > 0 else last_processed_ts
+            "status": final_status,
+            "candles_processed": total_candles_processed,
+            "events_persisted": total_events_persisted,
+            "last_checkpoint": current_checkpoint_ts,
+            "processed_timestamps": all_processed_timestamps
         }
 
     @classmethod
