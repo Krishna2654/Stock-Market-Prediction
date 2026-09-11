@@ -73,8 +73,14 @@ class MWBreakoutAlertEngine:
         The source JSON file is strictly read-only and is never written back to.
         """
         try:
-            if STORAGE_FILE.exists():
-                with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+            target_file = STORAGE_FILE
+            if not target_file.exists():
+                seed_fallback = Path(__file__).resolve().parent.parent / "db" / "seed_data" / "mw_breakout_alerts_store.json"
+                if seed_fallback.exists():
+                    target_file = seed_fallback
+
+            if target_file.exists():
+                with open(target_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, dict):
                         raw_alerts = data.get("alerts", [])

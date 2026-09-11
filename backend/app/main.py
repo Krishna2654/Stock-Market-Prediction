@@ -18,7 +18,7 @@ from app.alerts.engine import alert_engine
 from app.alerts.high_confluence_engine import high_confluence_alert_engine
 from app.alerts.mw_breakout_engine import mw_breakout_engine
 from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
-from app.db import init_db
+from app.db import init_db, bootstrap_canonical_alerts
 
 from app.market_processing.worker import MarketProcessingWorker
 
@@ -29,9 +29,10 @@ market_worker = MarketProcessingWorker(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize DB and start autonomous 24/7 background worker
+    # Startup: Initialize DB, bootstrap canonical historical W/M records, and start autonomous worker
     try:
         await init_db()
+        await bootstrap_canonical_alerts()
     except Exception as e:
         print(f"[DB Startup Warning]: {e}")
 

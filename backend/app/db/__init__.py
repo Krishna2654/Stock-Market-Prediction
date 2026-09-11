@@ -16,6 +16,7 @@ from app.db.repository import (
     StructureNotificationRepository,
     CheckpointRepository,
 )
+from app.db.seeder import bootstrap_canonical_alerts
 
 __all__ = [
     "Base",
@@ -23,6 +24,7 @@ __all__ = [
     "async_session_factory",
     "get_db_session",
     "init_db",
+    "bootstrap_canonical_alerts",
     "get_database_path",
     "MWBreakoutAlertModel",
     "StructureNotificationModel",

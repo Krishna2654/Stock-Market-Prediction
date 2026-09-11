@@ -45,6 +45,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [stats, setStats] = useState<MWBreakoutStats | null>(null);
+  const [isStatsLoading, setIsStatsLoading] = useState<boolean>(true);
 
   // Server-Side Pagination State
   const [page, setPage] = useState<number>(1);
@@ -66,6 +67,8 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
       setStats(data);
     } catch (err) {
       console.warn('Failed to load M/W stats:', err);
+    } finally {
+      setIsStatsLoading(false);
     }
   };
 
@@ -151,7 +154,10 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
     return (
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
         <div className="text-xs font-semibold text-slate-600">
-          Showing <span className="font-bold text-slate-900">{startItem}–{endItem}</span> of <span className="font-bold text-slate-900">{totalCount}</span>
+          Showing <span className="font-bold text-slate-900">{startItem}–{endItem}</span> of{' '}
+          <span className="font-bold text-slate-900">
+            {isPageLoading && totalCount === 0 ? '...' : totalCount}
+          </span>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
@@ -291,8 +297,12 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
             <span>W Breakouts</span>
           </div>
-          <div className="text-xl font-black text-emerald-700 mt-1">
-            {stats?.w_breakouts ?? 0}
+          <div className="text-xl font-black text-emerald-700 mt-1 min-h-[28px] flex items-center">
+            {stats !== null && !isStatsLoading ? (
+              stats.w_breakouts
+            ) : (
+              <span className="inline-block h-6 w-12 bg-slate-200 animate-pulse rounded-md" />
+            )}
           </div>
         </div>
 
@@ -301,8 +311,12 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <TrendingDown className="h-3.5 w-3.5 text-rose-600" />
             <span>M Breakdowns</span>
           </div>
-          <div className="text-xl font-black text-rose-700 mt-1">
-            {stats?.m_breakdowns ?? 0}
+          <div className="text-xl font-black text-rose-700 mt-1 min-h-[28px] flex items-center">
+            {stats !== null && !isStatsLoading ? (
+              stats.m_breakdowns
+            ) : (
+              <span className="inline-block h-6 w-12 bg-slate-200 animate-pulse rounded-md" />
+            )}
           </div>
         </div>
 
@@ -311,8 +325,12 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
             <span>Target Open</span>
           </div>
-          <div className="text-xl font-black text-blue-600 mt-1">
-            {stats?.active_count ?? 0}
+          <div className="text-xl font-black text-blue-600 mt-1 min-h-[28px] flex items-center">
+            {stats !== null && !isStatsLoading ? (
+              stats.active_count
+            ) : (
+              <span className="inline-block h-6 w-12 bg-slate-200 animate-pulse rounded-md" />
+            )}
           </div>
         </div>
 
@@ -321,8 +339,12 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
             <span>Target Hit</span>
           </div>
-          <div className="text-xl font-black text-emerald-600 mt-1">
-            {stats?.target_hit_count ?? 0}
+          <div className="text-xl font-black text-emerald-600 mt-1 min-h-[28px] flex items-center">
+            {stats !== null && !isStatsLoading ? (
+              stats.target_hit_count
+            ) : (
+              <span className="inline-block h-6 w-12 bg-slate-200 animate-pulse rounded-md" />
+            )}
           </div>
         </div>
 
@@ -331,8 +353,12 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
             <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
             <span>SL Hit</span>
           </div>
-          <div className="text-xl font-black text-rose-600 mt-1">
-            {stats?.invalidated_count ?? 0}
+          <div className="text-xl font-black text-rose-600 mt-1 min-h-[28px] flex items-center">
+            {stats !== null && !isStatsLoading ? (
+              stats.invalidated_count
+            ) : (
+              <span className="inline-block h-6 w-12 bg-slate-200 animate-pulse rounded-md" />
+            )}
           </div>
         </div>
       </div>

@@ -101,13 +101,18 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
             await session.close()
 
 
-async def init_db(target_engine: Optional[AsyncEngine] = None) -> None:
+async def init_db(target_engine: Optional[AsyncEngine] = None, seed_canonical: bool = False) -> None:
     """
     Safely creates all database tables and indexes if they do not already exist.
     Non-destructive; does not alter or delete existing data.
+    If seed_canonical is True, safely and idempotently bootstraps canonical historical records.
     """
     import app.db.models  # Ensures all models are registered on Base.metadata
     eng = target_engine or engine
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("[DB] SQLite database initialized in WAL mode successfully.")
+
+    if seed_canonical:
+        from app.db.seeder import bootstrap_canonical_alerts
+        await bootstrap_canonical_alerts()
