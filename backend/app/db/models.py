@@ -12,7 +12,7 @@ from sqlalchemy import (
 )
 
 from app.db.database import Base
-from app.models.schemas import AlertNotification, MWBreakoutAlert
+from app.models.schemas import AlertNotification, MWBreakoutAlert, ProcessingCheckpoint
 
 
 class MWBreakoutAlertModel(Base):
@@ -234,6 +234,43 @@ class StructureNotificationModel(Base):
         if not d.get("created_at"):
             d["created_at"] = datetime.now(timezone.utc).isoformat()
         return cls(**d)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+
+class ProcessingCheckpointModel(Base):
+    """
+    Persistent SQLAlchemy representation of processing checkpoints per (symbol, timeframe).
+    Ensures missed-candle recovery can identify the exact last successfully processed
+    completed candle across backend restarts or host sleep cycles.
+    """
+    __tablename__ = "processing_checkpoints"
+
+    symbol = Column(String, primary_key=True, nullable=False)
+    timeframe = Column(String, primary_key=True, nullable=False)
+    last_processed_candle_timestamp = Column(String, nullable=False)
+    last_processed_at = Column(String, nullable=False)
+    candles_processed_count = Column(Integer, nullable=False, default=0)
+    checkpoint_status = Column(String, nullable=False, default="SYNCED")  # "SYNCED", "RECOVERING"
+
+    __table_args__ = (
+        Index("ix_processing_checkpoints_lookup", "symbol", "timeframe"),
+    )
+
+    def to_schema(self) -> ProcessingCheckpoint:
+        return ProcessingCheckpoint(
+            symbol=self.symbol,
+            timeframe=self.timeframe,
+            last_processed_candle_timestamp=self.last_processed_candle_timestamp,
+            last_processed_at=self.last_processed_at,
+            candles_processed_count=self.candles_processed_count,
+            checkpoint_status=self.checkpoint_status,
+        )
+
+    @classmethod
+    def from_schema(cls, cp: ProcessingCheckpoint) -> "ProcessingCheckpointModel":
+        return cls(**cp.model_dump())
 
     def to_dict(self) -> Dict[str, Any]:
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}

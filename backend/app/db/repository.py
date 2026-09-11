@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import MWBreakoutAlertModel, StructureNotificationModel
-from app.models.schemas import AlertNotification, MWBreakoutAlert
+from app.db.models import MWBreakoutAlertModel, StructureNotificationModel, ProcessingCheckpointModel
+from app.models.schemas import AlertNotification, MWBreakoutAlert, ProcessingCheckpoint
 
 logger = logging.getLogger(__name__)
 
@@ -661,3 +661,150 @@ class StructureNotificationRepository:
             "earliest_timestamp": earliest,
             "latest_timestamp": latest,
         }
+
+
+class CheckpointRepository:
+    """
+    Dedicated database repository for persistent processing checkpoints per (symbol, timeframe).
+    Guarantees atomic updates, retrieval, and crash recovery.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_checkpoint(self, symbol: str, timeframe: str) -> Optional[ProcessingCheckpointModel]:
+        stmt = select(ProcessingCheckpointModel).where(
+            ProcessingCheckpointModel.symbol == symbol,
+            ProcessingCheckpointModel.timeframe == timeframe
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def get_all_checkpoints(self) -> List[ProcessingCheckpointModel]:
+        stmt = select(ProcessingCheckpointModel).order_by(
+            ProcessingCheckpointModel.symbol,
+            ProcessingCheckpointModel.timeframe
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+    async def update_checkpoint(
+        self,
+        symbol: str,
+        timeframe: str,
+        last_candle_timestamp: str,
+        processed_count: int = 0,
+        status: str = "SYNCED"
+    ) -> ProcessingCheckpointModel:
+        now_str = datetime.now(timezone.utc).isoformat()
+        existing = await self.get_checkpoint(symbol, timeframe)
+        if existing:
+            existing.last_processed_candle_timestamp = last_candle_timestamp
+            existing.last_processed_at = now_str
+            existing.candles_processed_count += processed_count
+            existing.checkpoint_status = status
+            await self.session.flush()
+            return existing
+        else:
+            model = ProcessingCheckpointModel(
+                symbol=symbol,
+                timeframe=timeframe,
+                last_processed_candle_timestamp=last_candle_timestamp,
+                last_processed_at=now_str,
+                candles_processed_count=processed_count,
+                checkpoint_status=status
+            )
+            self.session.add(model)
+            await self.session.flush()
+            return model
+
+    # Synchronous helpers using sqlite3 for zero-overhead background operations
+    @staticmethod
+    def get_checkpoint_sync(symbol: str, timeframe: str) -> Optional[ProcessingCheckpoint]:
+        try:
+            import sqlite3
+            from app.db.database import get_database_path
+            db_path = get_database_path()
+            if not db_path.exists():
+                return None
+            with sqlite3.connect(str(db_path)) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT symbol, timeframe, last_processed_candle_timestamp,
+                           last_processed_at, candles_processed_count, checkpoint_status
+                    FROM processing_checkpoints
+                    WHERE symbol = ? AND timeframe = ?
+                    LIMIT 1
+                    """,
+                    (symbol, timeframe)
+                )
+                row = cursor.fetchone()
+                if row:
+                    return ProcessingCheckpoint(**dict(row))
+        except Exception as e:
+            logger.warning(f"[CheckpointRepo] get_checkpoint_sync error for {symbol} {timeframe}: {e}")
+        return None
+
+    @staticmethod
+    def get_all_checkpoints_sync() -> List[ProcessingCheckpoint]:
+        try:
+            import sqlite3
+            from app.db.database import get_database_path
+            db_path = get_database_path()
+            if not db_path.exists():
+                return []
+            with sqlite3.connect(str(db_path)) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT symbol, timeframe, last_processed_candle_timestamp,
+                           last_processed_at, candles_processed_count, checkpoint_status
+                    FROM processing_checkpoints
+                    ORDER BY symbol, timeframe
+                    """
+                )
+                rows = cursor.fetchall()
+                return [ProcessingCheckpoint(**dict(r)) for r in rows]
+        except Exception as e:
+            logger.warning(f"[CheckpointRepo] get_all_checkpoints_sync error: {e}")
+        return []
+
+    @staticmethod
+    def update_checkpoint_sync(
+        symbol: str,
+        timeframe: str,
+        last_candle_timestamp: str,
+        processed_count: int = 0,
+        status: str = "SYNCED"
+    ) -> bool:
+        try:
+            import sqlite3
+            from app.db.database import get_database_path
+            db_path = get_database_path()
+            if not db_path.exists():
+                return False
+            now_str = datetime.now(timezone.utc).isoformat()
+            with sqlite3.connect(str(db_path)) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO processing_checkpoints (
+                        symbol, timeframe, last_processed_candle_timestamp,
+                        last_processed_at, candles_processed_count, checkpoint_status
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(symbol, timeframe) DO UPDATE SET
+                        last_processed_candle_timestamp = excluded.last_processed_candle_timestamp,
+                        last_processed_at = excluded.last_processed_at,
+                        candles_processed_count = processing_checkpoints.candles_processed_count + excluded.candles_processed_count,
+                        checkpoint_status = excluded.checkpoint_status;
+                    """,
+                    (symbol, timeframe, last_candle_timestamp, now_str, processed_count, status)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning(f"[CheckpointRepo] update_checkpoint_sync error for {symbol} {timeframe}: {e}")
+            return False

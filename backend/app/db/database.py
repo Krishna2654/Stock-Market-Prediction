@@ -106,6 +106,7 @@ async def init_db(target_engine: Optional[AsyncEngine] = None) -> None:
     Safely creates all database tables and indexes if they do not already exist.
     Non-destructive; does not alter or delete existing data.
     """
+    import app.db.models  # Ensures all models are registered on Base.metadata
     eng = target_engine or engine
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

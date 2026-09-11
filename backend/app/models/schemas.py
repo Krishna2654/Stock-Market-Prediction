@@ -546,3 +546,12 @@ class TrendlineShortlistCandidate(BaseModel):
     notes: Optional[str] = None
     score_breakdown: Dict[str, int] = {}
     created_at: Optional[str] = None
+
+
+class ProcessingCheckpoint(BaseModel):
+    symbol: str
+    timeframe: str
+    last_processed_candle_timestamp: str
+    last_processed_at: str
+    candles_processed_count: int = 0
+    checkpoint_status: str = "SYNCED"  # "SYNCED", "RECOVERING"

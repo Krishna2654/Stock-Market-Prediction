@@ -564,16 +564,18 @@ class MWBreakoutAlertEngine:
     def process_synthesis(
         self,
         synthesis: MultiTimeframeSynthesis,
-        mtf_candles: Optional[Dict[str, List[Candle]]] = None
+        mtf_candles: Optional[Dict[str, List[Candle]]] = None,
+        is_catchup: bool = False
     ) -> List[MWBreakoutAlert]:
         """Scans timeframes for confirmed breakouts. Returns newly triggered alerts."""
-        new_alerts, _ = self.process_synthesis_with_updates(synthesis, mtf_candles=mtf_candles)
+        new_alerts, _ = self.process_synthesis_with_updates(synthesis, mtf_candles=mtf_candles, is_catchup=is_catchup)
         return new_alerts
 
     def process_synthesis_with_updates(
         self,
         synthesis: MultiTimeframeSynthesis,
-        mtf_candles: Optional[Dict[str, List[Candle]]] = None
+        mtf_candles: Optional[Dict[str, List[Candle]]] = None,
+        is_catchup: bool = False
     ) -> Tuple[List[MWBreakoutAlert], List[MWBreakoutAlert]]:
         """
         Scans all timeframes for confirmed breakouts and evaluates active alerts against live market price/candles.
@@ -696,7 +698,8 @@ class MWBreakoutAlertEngine:
                     action = self._persist_alert_to_db_sync(alert)
                     if action == "INSERTED":
                         self.alerts.insert(0, alert)
-                        new_alerts.append(alert)
+                        if not is_catchup:
+                            new_alerts.append(alert)
                         self.seen_event_keys.add(dedupe_key)
                     elif action == "SKIPPED":
                         # Identity exists with identical values; check if in-memory list has it
@@ -708,6 +711,8 @@ class MWBreakoutAlertEngine:
                     continue
 
         self.alerts.sort(key=lambda a: (a.breakout_candle_timestamp or "", a.alert_id or ""), reverse=True)
+        if is_catchup:
+            return [], []
         return new_alerts, updated_alerts
 
     def _update_existing_alert_statuses(

@@ -264,7 +264,8 @@ class AlertEngine:
 
     def process_synthesis_for_alerts(
         self,
-        synthesis: MultiTimeframeSynthesis
+        synthesis: MultiTimeframeSynthesis,
+        is_catchup: bool = False
     ) -> List[AlertNotification]:
         new_alerts: List[AlertNotification] = []
         now_str = datetime.now(timezone.utc).isoformat()
@@ -283,16 +284,15 @@ class AlertEngine:
                 if event.id in self.seen_event_ids or event_composite_key in self.seen_event_ids:
                     continue
 
-                # Protect against startup flood on historical candles:
-                # If break occurred more than 6 candles prior in the loaded window, mark seen without live alerting
-                if event.break_candle_index < max(0, tf_data.candle_count - 6):
-                    self.seen_event_ids.add(event.id)
-                    self.seen_event_ids.add(event_composite_key)
-                    continue
-
                 # Completed-candle close enforcement (skip uncompleted forming candles)
                 if not is_candle_closed(event.timestamp, event.timeframe):
                     continue
+
+                # Live notification eligibility:
+                # Breakout occurred on a recent candle (within last 6 bars of the window)
+                # AND we are not in historical catchup recovery mode
+                is_live_candle = event.break_candle_index >= max(0, tf_data.candle_count - 6)
+                emit_live_notification = (not is_catchup) and is_live_candle
 
                 # Skip precision confluence breakouts (handled separately by HighConfluenceAlertEngine)
                 if "EMA_VOLUME" in event.event_type or "PATTERN_TRENDLINE" in event.event_type:
@@ -391,10 +391,13 @@ class AlertEngine:
 
                 self.seen_event_ids.add(alert.id)
                 self.notifications.append(alert)
-                new_alerts.append(alert)
 
-                # Lossless persistence to SQLite
+                # Lossless persistence to SQLite (ALWAYS PERSISTED)
                 self._persist_notification_db_sync(alert)
+
+                # Live notification toast only if candle is live and not in catchup mode
+                if emit_live_notification:
+                    new_alerts.append(alert)
 
         return new_alerts
 

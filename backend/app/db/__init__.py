@@ -6,8 +6,16 @@ from app.db.database import (
     init_db,
     get_database_path,
 )
-from app.db.models import MWBreakoutAlertModel
-from app.db.repository import MWAlertRepository
+from app.db.models import (
+    MWBreakoutAlertModel,
+    StructureNotificationModel,
+    ProcessingCheckpointModel,
+)
+from app.db.repository import (
+    MWAlertRepository,
+    StructureNotificationRepository,
+    CheckpointRepository,
+)
 
 __all__ = [
     "Base",
@@ -17,5 +25,9 @@ __all__ = [
     "init_db",
     "get_database_path",
     "MWBreakoutAlertModel",
+    "StructureNotificationModel",
+    "ProcessingCheckpointModel",
     "MWAlertRepository",
+    "StructureNotificationRepository",
+    "CheckpointRepository",
 ]
