@@ -111,14 +111,20 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
       : null
   ) || mwBreakoutAlerts.find(
     (a) => normSym(a.symbol) === normSym(activeSymbol) && a.timeframe === selectedTimeframe
-  ) || activeChartAlert || mwBreakoutAlerts.find(
-    (a) => normSym(a.symbol) === normSym(activeSymbol)
   );
 
-  // Reset active chart alert when switching symbol
+  const isChartSynced = Boolean(
+    activeChartAlert && currentMWAlert && activeChartAlert.alert_id === currentMWAlert.alert_id
+  );
+
+  const symbolOtherAlerts = mwBreakoutAlerts.filter(
+    (a) => normSym(a.symbol) === normSym(activeSymbol) && a.timeframe !== selectedTimeframe
+  );
+
+  // Reset active chart alert when switching symbol or timeframe
   useEffect(() => {
     setActiveChartAlert(null);
-  }, [activeSymbol]);
+  }, [activeSymbol, selectedTimeframe]);
 
   // Dynamic Browser Page Title
   useEffect(() => {
@@ -349,9 +355,15 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
                 <span className="text-xs font-mono font-normal text-slate-400">•</span>
                 <span className="font-bold text-slate-700">{currentMWAlert.symbol} ({currentMWAlert.timeframe})</span>
               </h3>
-              <span className="text-[9px] bg-purple-600 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-2xs">
-                CHART SYNCED
-              </span>
+              {isChartSynced ? (
+                <span className="text-[9px] bg-purple-600 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-2xs">
+                  CHART SYNCED
+                </span>
+              ) : (
+                <span className="text-[9px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border border-purple-200">
+                  LATEST ({currentMWAlert.timeframe})
+                </span>
+              )}
             </div>
             <Link
               to="/mw-breakouts"
@@ -362,6 +374,29 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
             </Link>
           </div>
           <MWBreakoutCard alert={currentMWAlert} isHero={true} />
+        </div>
+      )}
+
+      {/* Helpful switch hint if alert exists on a different timeframe for this symbol */}
+      {!currentMWAlert && symbolOtherAlerts.length > 0 && (
+        <div className="bg-purple-50/70 border border-purple-100 rounded-2xl p-3 flex items-center justify-between flex-wrap gap-2 text-xs">
+          <div className="flex items-center gap-2 text-purple-900">
+            <Target className="h-4 w-4 text-purple-600 shrink-0" />
+            <span>
+              No active M/W breakout on <strong className="font-mono">{selectedTimeframe}</strong>. Recent setup exists on <strong className="font-mono">{Array.from(new Set(symbolOtherAlerts.map(a => a.timeframe))).join(', ')}</strong>.
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              const targetTf = symbolOtherAlerts[0].timeframe as '4H' | '1H' | '15M' | '5M';
+              if (['4H', '1H', '15M', '5M'].includes(targetTf)) {
+                setSelectedTimeframe(targetTf);
+              }
+            }}
+            className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer"
+          >
+            Switch to {symbolOtherAlerts[0].timeframe}
+          </button>
         </div>
       )}
 

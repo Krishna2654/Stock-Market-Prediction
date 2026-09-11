@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StructureBreakEvent, AlertNotification } from '../types';
 import { formatMarketDateTime } from '../utils/time';
-import { History, Download, Filter, Search, ShieldCheck } from 'lucide-react';
+import { api } from '../services/api';
+import { History, Download, Filter, Search, ShieldCheck, RefreshCw } from 'lucide-react';
 
 interface EventHistoryTableProps {
   notifications: AlertNotification[];
@@ -15,8 +16,38 @@ export const EventHistoryTable: React.FC<EventHistoryTableProps> = ({
   const [filterTimeframe, setFilterTimeframe] = useState<string>('ALL');
   const [filterEventType, setFilterEventType] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [localData, setLocalData] = useState<AlertNotification[]>(notifications || []);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const filtered = notifications.filter((n) => {
+  useEffect(() => {
+    if (notifications && notifications.length > 0) {
+      setLocalData(notifications);
+    }
+  }, [notifications]);
+
+  const fetchEvents = async () => {
+    setIsLoading(true);
+    try {
+      const res = await api.getNotifications(100);
+      const list = Array.isArray(res) ? res : (res?.items || []);
+      setLocalData(list);
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  const handleClear = () => {
+    onClear();
+    setLocalData([]);
+  };
+
+  const filtered = localData.filter((n) => {
     if (filterTimeframe !== 'ALL' && n.timeframe !== filterTimeframe) return false;
     if (filterEventType !== 'ALL') {
       if (filterEventType === '3-TOUCH') {
@@ -129,6 +160,17 @@ export const EventHistoryTable: React.FC<EventHistoryTableProps> = ({
             <option value="CHOCH">CHoCH</option>
           </select>
 
+          {/* Refresh */}
+          <button
+            onClick={fetchEvents}
+            disabled={isLoading}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-cyan-400 hover:text-cyan-300 text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer"
+            title="Refresh Notification Log"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+
           {/* Export CSV */}
           <button
             onClick={exportCSV}
@@ -151,8 +193,8 @@ export const EventHistoryTable: React.FC<EventHistoryTableProps> = ({
 
           {/* Clear */}
           <button
-            onClick={onClear}
-            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-rose-400 hover:text-rose-300 text-xs font-medium transition-all"
+            onClick={handleClear}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-rose-400 hover:text-rose-300 text-xs font-medium transition-all cursor-pointer"
           >
             Clear
           </button>
@@ -219,10 +261,10 @@ export const EventHistoryTable: React.FC<EventHistoryTableProps> = ({
                       </div>
                     </td>
                     <td className="py-2.5 px-3 font-mono font-bold text-slate-200 whitespace-nowrap">
-                      ₹{evt.price.toFixed(2)}
+                      {evt.symbol.includes('BTC') || evt.symbol.includes('USD') ? '$' : '₹'}{evt.price.toFixed(2)}
                     </td>
                     <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">
-                      ₹{evt.level.toFixed(2)}
+                      {evt.symbol.includes('BTC') || evt.symbol.includes('USD') ? '$' : '₹'}{evt.level.toFixed(2)}
                     </td>
                     <td className="py-2.5 px-2 text-center whitespace-nowrap">
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${

@@ -109,7 +109,10 @@ const AppContent: React.FC = () => {
         setRules(rulesRes.value);
       }
       if (notifsRes.status === 'fulfilled' && notifsRes.value) {
-        setNotifications(notifsRes.value);
+        const notifList = Array.isArray(notifsRes.value)
+          ? notifsRes.value
+          : (notifsRes.value?.items || []);
+        setNotifications(notifList);
       }
       if (hcAlertsRes.status === 'fulfilled' && hcAlertsRes.value) {
         setHighConfluenceAlerts(hcAlertsRes.value);
@@ -153,10 +156,11 @@ const AppContent: React.FC = () => {
                 predictive_scenarios: {},
                 confirmation_state: 'Active'
               } as any;
-            } else if (item.current_price > 0 && next[item.symbol].current_price === 0) {
+            } else {
+              // Preserve existing timeframes and rich structure without overwriting
               next[item.symbol] = {
                 ...next[item.symbol],
-                current_price: item.current_price,
+                current_price: item.current_price > 0 ? item.current_price : next[item.symbol].current_price,
                 overall_bias: item.overall_bias || next[item.symbol].overall_bias,
                 evidence_score: {
                   ...next[item.symbol].evidence_score,
@@ -201,6 +205,30 @@ const AppContent: React.FC = () => {
         synthMap[s.symbol] = s;
       });
       setSyntheses(synthMap);
+
+      // Re-fetch notifications and M/W updates immediately after overview completes
+      // so newly triggered trendline breaks and M/W breakouts are instantly visible in UI
+      try {
+        const [freshNotifs, freshMw, freshStats] = await Promise.allSettled([
+          api.getNotifications(100),
+          api.getMWBreakouts(),
+          api.getMWBreakoutStats()
+        ]);
+        if (freshNotifs.status === 'fulfilled' && freshNotifs.value) {
+          const list = Array.isArray(freshNotifs.value) ? freshNotifs.value : (freshNotifs.value?.items || []);
+          if (list.length > 0) {
+            setNotifications(list);
+          }
+        }
+        if (freshMw.status === 'fulfilled' && freshMw.value?.items) {
+          setMwBreakoutAlerts(freshMw.value.items);
+        }
+        if (freshStats.status === 'fulfilled' && freshStats.value) {
+          setMwUnreadCount(freshStats.value.unread_count || 0);
+        }
+      } catch (e) {
+        console.warn('Post-overview sync warning:', e);
+      }
     } catch (err) {
       console.error('Failed to load overview:', err);
     } finally {
@@ -249,7 +277,10 @@ const AppContent: React.FC = () => {
         setUnreadCount((c) => c + 1);
         setLatestToast(notif);
         setTimeout(() => setLatestToast(null), 7000);
-        setNotifications((prev) => [notif, ...prev]);
+        setNotifications((prev) => {
+          if (prev.some((n) => n.id === notif.id)) return prev;
+          return [notif, ...prev];
+        });
       } 
       // 4. SYNTHESIS TICK UPDATES — Update state directly without re-triggering full HTTP fetch
       else if (data.type === 'SYNTHESIS_UPDATE' && data.symbol) {
@@ -494,6 +525,15 @@ const AppContent: React.FC = () => {
         onRefreshRules={async () => {
           const r = await api.getAlertRules();
           setRules(r);
+        }}
+        onRefreshNotifications={async () => {
+          try {
+            const notifs = await api.getNotifications(100);
+            const list = Array.isArray(notifs) ? notifs : (notifs?.items || []);
+            setNotifications(list);
+          } catch (e) {
+            console.error('Failed to refresh notifications:', e);
+          }
         }}
         onClearNotifications={() => {
           api.clearNotifications();

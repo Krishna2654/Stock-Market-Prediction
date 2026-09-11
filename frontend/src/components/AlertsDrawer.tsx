@@ -12,7 +12,8 @@ import {
   Radio,
   Zap,
   Check,
-  Filter
+  Filter,
+  RefreshCw
 } from 'lucide-react';
 
 interface AlertsDrawerProps {
@@ -21,6 +22,7 @@ interface AlertsDrawerProps {
   notifications: AlertNotification[];
   rules: AlertRule[];
   onRefreshRules: () => void;
+  onRefreshNotifications?: () => void;
   onClearNotifications: () => void;
   soundEnabled: boolean;
   onToggleSound: () => void;
@@ -33,6 +35,7 @@ export const AlertsDrawer: React.FC<AlertsDrawerProps> = ({
   notifications,
   rules,
   onRefreshRules,
+  onRefreshNotifications,
   onClearNotifications,
   soundEnabled,
   onToggleSound,
@@ -102,8 +105,12 @@ export const AlertsDrawer: React.FC<AlertsDrawerProps> = ({
     }
   };
 
-  const displayedNotifications = notifications.filter(
-    (n) => n.evidence_score >= filterScore
+  const safeNotifications: AlertNotification[] = Array.isArray(notifications)
+    ? notifications
+    : ((notifications as any)?.items || []);
+
+  const displayedNotifications = safeNotifications.filter(
+    (n) => (n.evidence_score ?? 0) >= filterScore
   );
 
   return (
@@ -123,6 +130,16 @@ export const AlertsDrawer: React.FC<AlertsDrawerProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
+              {onRefreshNotifications && (
+                <button
+                  onClick={onRefreshNotifications}
+                  className="p-1.5 rounded-lg bg-slate-50 text-slate-600 hover:text-blue-600 border border-slate-200 hover:border-blue-300 transition-all cursor-pointer"
+                  title="Refresh Notifications"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              )}
+
               <button
                 onClick={onToggleSound}
                 className={`p-1.5 rounded-lg border transition-all ${
@@ -137,7 +154,7 @@ export const AlertsDrawer: React.FC<AlertsDrawerProps> = ({
 
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:text-slate-900 transition-all"
+                className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:text-slate-900 transition-all cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -230,7 +247,7 @@ export const AlertsDrawer: React.FC<AlertsDrawerProps> = ({
                         {n.message}
                       </p>
                       <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-200 font-mono">
-                        <span>Break Price: {n.price.toFixed(2)}</span>
+                        <span>Break Price: {n.symbol.includes('BTC') || n.symbol.includes('USD') ? '$' : '₹'}{typeof n.price === 'number' ? n.price.toFixed(2) : n.price}</span>
                         <span
                           className={`font-bold px-1.5 py-0.5 rounded ${
                             n.evidence_score >= 80

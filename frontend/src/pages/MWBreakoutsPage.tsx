@@ -81,7 +81,7 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
     try {
       const data = await api.getMWBreakouts({
         page,
-        limit,
+        limit: dateFilter === 'latest' ? 5 : limit,
         symbol: searchQuery.trim() || undefined,
         timeframe: timeframeFilter !== 'ALL' ? timeframeFilter : undefined,
         pattern_type: patternTypeFilter !== 'ALL' ? patternTypeFilter : undefined,
@@ -470,8 +470,20 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
               NO CONFIRMED M/W BREAKOUTS
             </h3>
             <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
-              Waiting for a valid pattern and confirmed candle close from the live market data stream.
+              {dateFilter === 'today'
+                ? 'No new M/W breakouts confirmed today yet. Check historical breakouts or wait for active session candle closes.'
+                : 'Waiting for a valid pattern and confirmed candle close from the live market data stream.'}
             </p>
+            {dateFilter !== 'all' && (
+              <div className="pt-2">
+                <button
+                  onClick={() => updateFilter(setDateFilter, 'all')}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <span>View All Historical Breakouts ({stats ? stats.w_breakouts + stats.m_breakdowns : '540+'})</span>
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left text-xs text-slate-700 space-y-2 max-w-md mx-auto">
