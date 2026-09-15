@@ -355,13 +355,19 @@ async def get_chart_data(
             ticker = target.ticker if target else symbol
 
             # Request via live priority semaphore (never blocked by background catch-up)
-            candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit, is_catchup=False)
+            try:
+                candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit, is_catchup=False)
+            except TypeError as te:
+                if "is_catchup" in str(te):
+                    candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit)
+                else:
+                    raise
             if not candles:
                 raise HTTPException(status_code=404, detail=f"No candle data available for {symbol} on {timeframe}")
 
             resp_data = build_chart_payload(symbol, ticker, timeframe, candles)
             latest_ts = candles[-1].timestamp if candles else None
-            worker_chart_cache.set(symbol, timeframe, resp_data, latest_candle_timestamp=latest_ts)
+            worker_chart_cache.set(symbol, timeframe, resp_data, latest_candle_timestamp=latest_ts, is_worker_producer=False)
             _chart_cache[cache_key] = (time.time(), resp_data)
             return resp_data
         finally:

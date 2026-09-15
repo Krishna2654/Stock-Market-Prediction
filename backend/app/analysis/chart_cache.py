@@ -1,10 +1,12 @@
-﻿import logging
+import logging
 import time
 from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
 import pandas as pd
 
 from app.models.schemas import Candle
 from app.core.config import settings
+from app.core.timezone import is_candle_closed
 from app.indicators.technical import TechnicalIndicatorEngine
 from app.market_structure.swings import SwingDetector
 from app.market_structure.bos_choch import BOSCHoCHDetector
@@ -144,63 +146,215 @@ def build_chart_payload(
 
 class WorkerChartCache:
     """
-    In-memory precomputed chart buffer populated by MarketProcessingWorker.
-    Keyed by (symbol.upper(), timeframe.upper()).
+    In-memory precomputed chart buffer populated authoritatively by MarketProcessingWorker.
+    Keyed strictly by (symbol.upper(), timeframe.upper()).
     Stores the full ChartView response payload.
+
+    Validity Contract (Candle-State-Driven, Non-Wall-Clock):
+    VALID when:
+    1. (symbol, timeframe) matches
+    2. payload contains only completed candles
+    3. latest_candle_timestamp is valid
+    4. there is no newer completed candle known to the worker
+    5. payload generation is valid
+
+    INVALID only when:
+    - wrong symbol/timeframe
+    - malformed cache
+    - future/uncompleted candle
+    - newer completed candle is available
+    - worker explicitly marks the entry invalid
     """
     def __init__(self):
         self._cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        self._latest_known_completed: Dict[Tuple[str, str], str] = {}
+
+    def record_known_completed_candle(self, symbol: str, timeframe: str, timestamp: str) -> None:
+        """
+        Authoritatively records the latest completed candle observed by the worker for (symbol, timeframe).
+        This serves as the freshness authority: a cached entry remains valid until this timestamp advances.
+        """
+        if not symbol or not timeframe or not timestamp:
+            return
+        key = (symbol.upper(), timeframe.upper())
+        current = self._latest_known_completed.get(key)
+        if not current or timestamp > current:
+            self._latest_known_completed[key] = timestamp
+
+    def get_latest_known_completed_candle(self, symbol: str, timeframe: str) -> Optional[str]:
+        return self._latest_known_completed.get((symbol.upper(), timeframe.upper()))
+
+    def mark_invalid(self, symbol: str, timeframe: str, reason: str = "") -> None:
+        """
+        Explicitly marks the cache entry for (symbol, timeframe) as invalid.
+        """
+        key = (symbol.upper(), timeframe.upper())
+        if key in self._cache:
+            self._cache[key]["is_valid"] = False
+            self._cache[key]["invalidation_reason"] = reason
+
+    def invalidate(self, symbol: str, timeframe: str) -> None:
+        """
+        Explicitly invalidates and evicts the entry for (symbol, timeframe).
+        """
+        self.mark_invalid(symbol, timeframe, reason="explicit_invalidation")
+
+    def is_entry_valid(
+        self,
+        symbol: str,
+        timeframe: str,
+        now: Optional[datetime] = None
+    ) -> Tuple[bool, str]:
+        """
+        Evaluates the validity of the cached entry against strict candle-state rules.
+        Does NOT use wall-clock age as the invalidation authority.
+        """
+        key = (symbol.upper(), timeframe.upper())
+        entry = self._cache.get(key)
+        if not entry:
+            return False, "CACHE_MISS_NO_ENTRY"
+
+        # 1. (symbol, timeframe) match
+        if entry.get("symbol") != symbol.upper() or entry.get("timeframe") != timeframe.upper():
+            return False, "SYMBOL_TIMEFRAME_MISMATCH"
+
+        # 2. Worker explicit invalidation check
+        if not entry.get("is_valid", True):
+            reason = entry.get("invalidation_reason", "MARKED_INVALID_BY_WORKER")
+            return False, f"WORKER_EXPLICITLY_MARKED_INVALID: {reason}"
+
+        # 3. Malformed cache check (payload structure)
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            return False, "MALFORMED_CACHE_PAYLOAD_NOT_DICT"
+
+        candles = payload.get("candles")
+        if not isinstance(candles, list) or len(candles) == 0:
+            return False, "MALFORMED_CACHE_NO_CANDLES"
+
+        # 4. latest_candle_timestamp is valid
+        latest_ts = entry.get("latest_candle_timestamp")
+        if not latest_ts or not isinstance(latest_ts, str):
+            return False, "INVALID_LATEST_CANDLE_TIMESTAMP"
+
+        # 5. Future / uncompleted candle check
+        # Verify that the latest candle has actually reached its timeframe close boundary
+        if not is_candle_closed(latest_ts, timeframe, now=now):
+            return False, f"FUTURE_OR_UNCOMPLETED_CANDLE: {latest_ts}"
+
+        # 6. Newer completed candle check
+        # The authoritative freshness signal is the latest COMPLETED candle known to the worker
+        known_latest = self._latest_known_completed.get(key)
+        if known_latest and known_latest > latest_ts:
+            return False, f"NEWER_COMPLETED_CANDLE_AVAILABLE: {known_latest} > {latest_ts}"
+
+        return True, "VALID"
 
     def set(
         self,
         symbol: str,
         timeframe: str,
         payload: Dict[str, Any],
-        latest_candle_timestamp: Optional[str] = None
-    ) -> None:
-        key = (symbol.upper(), timeframe.upper())
-        existing = self._cache.get(key)
+        latest_candle_timestamp: Optional[str] = None,
+        is_worker_producer: bool = True
+    ) -> bool:
+        """
+        Sets a precomputed chart payload into the cache.
+        Enforces:
+        - Symbol/timeframe isolation
+        - Malformed payload rejection
+        - Future/uncompleted candle rejection
+        - Monotonic timestamp protection (cannot overwrite with older timestamp)
+        - Fallback cannot overwrite equal or newer worker-produced payload
+        """
+        if not symbol or not timeframe:
+            return False
 
-        # Check monotonic candle timestamp to prevent stale overwrites
-        if existing and latest_candle_timestamp and existing.get("latest_candle_timestamp"):
-            if latest_candle_timestamp < existing["latest_candle_timestamp"]:
+        key = (symbol.upper(), timeframe.upper())
+
+        # Malformed payload check
+        if not isinstance(payload, dict):
+            logger.debug(f"[WorkerChartCache] Rejecting non-dict payload for {key}")
+            return False
+
+        candles = payload.get("candles")
+        if not isinstance(candles, list) or len(candles) == 0:
+            logger.debug(f"[WorkerChartCache] Rejecting payload with empty candles for {key}")
+            return False
+
+        # Extract latest candle timestamp if not provided
+        if not latest_candle_timestamp:
+            last_candle = candles[-1]
+            if isinstance(last_candle, dict):
+                latest_candle_timestamp = last_candle.get("time")
+            elif hasattr(last_candle, "timestamp"):
+                latest_candle_timestamp = getattr(last_candle, "timestamp")
+
+        if not latest_candle_timestamp or not isinstance(latest_candle_timestamp, str):
+            logger.debug(f"[WorkerChartCache] Rejecting payload without valid latest candle timestamp for {key}")
+            return False
+
+        # Future / uncompleted candle rejection
+        if not is_candle_closed(latest_candle_timestamp, timeframe):
+            logger.debug(f"[WorkerChartCache] Rejecting uncompleted/future candle {latest_candle_timestamp} for {key}")
+            return False
+
+        existing = self._cache.get(key)
+        if existing and existing.get("latest_candle_timestamp"):
+            existing_ts = existing["latest_candle_timestamp"]
+            # Monotonic protection: cannot overwrite with older timestamp
+            if latest_candle_timestamp < existing_ts:
                 logger.debug(
-                    f"[WorkerChartCache] Ignoring older payload for {key}: "
-                    f"{latest_candle_timestamp} < {existing['latest_candle_timestamp']}"
+                    f"[WorkerChartCache] Rejecting older timestamp overwrite for {key}: "
+                    f"{latest_candle_timestamp} < {existing_ts}"
                 )
-                return
+                return False
+
+            # Producer authority: Fallback cannot overwrite equal or newer worker payload
+            if not is_worker_producer and existing.get("producer") == "worker":
+                if latest_candle_timestamp <= existing_ts:
+                    logger.debug(f"[WorkerChartCache] Fallback request will not overwrite worker-produced payload for {key}")
+                    return False
+
+        # If worker is producer, authoritatively record latest known completed candle
+        if is_worker_producer:
+            self.record_known_completed_candle(symbol, timeframe, latest_candle_timestamp)
 
         self._cache[key] = {
             "payload": payload,
             "latest_candle_timestamp": latest_candle_timestamp,
             "cached_at": time.time(),
             "symbol": symbol.upper(),
-            "timeframe": timeframe.upper()
+            "timeframe": timeframe.upper(),
+            "is_valid": True,
+            "producer": "worker" if is_worker_producer else "fallback"
         }
+        return True
 
     def get(
         self,
         symbol: str,
         timeframe: str,
-        max_age_seconds: Optional[float] = 120.0
+        max_age_seconds: Optional[float] = None
     ) -> Optional[Dict[str, Any]]:
-        key = (symbol.upper(), timeframe.upper())
-        entry = self._cache.get(key)
-        if not entry:
+        """
+        Retrieves precomputed chart payload if VALID under candle-state rules.
+        Does NOT invalidate based on wall-clock time.
+        """
+        is_valid, reason = self.is_entry_valid(symbol, timeframe)
+        if not is_valid:
+            logger.debug(f"[WorkerChartCache] Miss for ({symbol}, {timeframe}): {reason}")
             return None
 
-        if max_age_seconds is not None:
-            age = time.time() - entry.get("cached_at", 0)
-            if age > max_age_seconds:
-                return None
-
-        return entry.get("payload")
+        entry = self._cache.get((symbol.upper(), timeframe.upper()))
+        return entry.get("payload") if entry else None
 
     def get_entry(self, symbol: str, timeframe: str) -> Optional[Dict[str, Any]]:
         return self._cache.get((symbol.upper(), timeframe.upper()))
 
     def clear(self) -> None:
         self._cache.clear()
+        self._latest_known_completed.clear()
 
     def count(self) -> int:
         return len(self._cache)

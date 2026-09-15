@@ -212,6 +212,8 @@ class MarketProcessingWorker:
                 continue
 
             latest_completed_ts = completed[-1].timestamp
+            from app.analysis.chart_cache import worker_chart_cache
+            worker_chart_cache.record_known_completed_candle(symbol, tf, latest_completed_ts)
             checkpoint = CheckpointRepository.get_checkpoint_sync(symbol, tf)
             last_processed = checkpoint.last_processed_candle_timestamp if checkpoint else None
 
@@ -340,9 +342,11 @@ class MarketProcessingWorker:
             from app.analysis.chart_cache import worker_chart_cache, build_chart_payload
             for tf_key, tf_candles in mtf_candles.items():
                 if tf_candles:
-                    chart_payload = build_chart_payload(symbol, ticker, tf_key, tf_candles)
-                    latest_ts = tf_candles[-1].timestamp if tf_candles else None
-                    worker_chart_cache.set(symbol, tf_key, chart_payload, latest_candle_timestamp=latest_ts)
+                    completed_tf = [c for c in tf_candles if is_candle_closed(c.timestamp, tf_key)]
+                    chart_candles = completed_tf if completed_tf else tf_candles
+                    chart_payload = build_chart_payload(symbol, ticker, tf_key, chart_candles)
+                    latest_ts = chart_candles[-1].timestamp if chart_candles else None
+                    worker_chart_cache.set(symbol, tf_key, chart_payload, latest_candle_timestamp=latest_ts, is_worker_producer=True)
         except Exception as chart_err:
             logger.debug(f"[MarketProcessingWorker] Chart precompute error for {symbol}: {chart_err}")
 
