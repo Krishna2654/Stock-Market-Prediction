@@ -72,7 +72,8 @@ class AlertEngine:
             db_path = get_database_path()
             if not db_path.exists():
                 return
-            with sqlite3.connect(str(db_path)) as conn:
+            with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                conn.execute("PRAGMA busy_timeout = 5000;")
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='structure_notifications';")
@@ -105,7 +106,8 @@ class AlertEngine:
             db_path = get_database_path()
             if not db_path.exists():
                 return False
-            with sqlite3.connect(str(db_path)) as conn:
+            with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                conn.execute("PRAGMA busy_timeout = 5000;")
                 cursor = conn.cursor()
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='structure_notifications';")
                 if not cursor.fetchone():
@@ -181,7 +183,8 @@ class AlertEngine:
         try:
             db_path = get_database_path()
             if db_path.exists():
-                with sqlite3.connect(str(db_path)) as conn:
+                with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                    conn.execute("PRAGMA busy_timeout = 5000;")
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM structure_notifications;")
                     conn.commit()
@@ -194,7 +197,8 @@ class AlertEngine:
         try:
             db_path = get_database_path()
             if db_path.exists():
-                with sqlite3.connect(str(db_path)) as conn:
+                with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                    conn.execute("PRAGMA busy_timeout = 5000;")
                     cursor = conn.cursor()
                     cursor.execute("UPDATE structure_notifications SET read = 1 WHERE read = 0 OR read IS NULL;")
                     conn.commit()

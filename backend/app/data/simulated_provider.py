@@ -128,7 +128,11 @@ class SimulatedMarketDataProvider(MarketDataProvider):
         symbol: str,
         ticker: str,
         timeframe: str,
-        limit: int = 300
+        limit: int = 300,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        is_catchup: bool = False,
+        **kwargs
     ) -> List[Candle]:
         base_price = self._get_base_price(symbol, ticker)
         return self._generate_synthetic_series(base_price, timeframe, limit)

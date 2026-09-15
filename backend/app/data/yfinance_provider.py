@@ -37,20 +37,37 @@ class YahooFinanceProvider(MarketDataProvider):
         }
         self._retry_attempts = 2
         self._backoff_factor = 1.0
+        self._init_semaphores()
 
-    _semaphore: Optional[asyncio.Semaphore] = None
+    _live_semaphore: Optional[asyncio.Semaphore] = None
+    _catchup_semaphore: Optional[asyncio.Semaphore] = None
     _semaphore_loop: Optional[asyncio.AbstractEventLoop] = None
 
     @classmethod
-    def _get_semaphore(cls) -> asyncio.Semaphore:
+    def _init_semaphores(cls):
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
-        if cls._semaphore is None or cls._semaphore_loop != loop:
-            cls._semaphore = asyncio.Semaphore(3)
+        if cls._live_semaphore is None or cls._semaphore_loop != loop:
+            cls._live_semaphore = asyncio.Semaphore(3)
+            cls._catchup_semaphore = asyncio.Semaphore(1)
             cls._semaphore_loop = loop
-        return cls._semaphore
+
+    @classmethod
+    def _get_live_semaphore(cls) -> asyncio.Semaphore:
+        cls._init_semaphores()
+        return cls._live_semaphore
+
+    @classmethod
+    def _get_catchup_semaphore(cls) -> asyncio.Semaphore:
+        cls._init_semaphores()
+        return cls._catchup_semaphore
+
+    @classmethod
+    def _get_semaphore(cls) -> asyncio.Semaphore:
+        # Backward-compatible alias for live requests
+        return cls._get_live_semaphore()
 
     @property
     def provider_name(self) -> str:
@@ -138,11 +155,17 @@ class YahooFinanceProvider(MarketDataProvider):
         timeframe: str,
         limit: int = 300,
         start: Optional[datetime] = None,
-        end: Optional[datetime] = None
+        end: Optional[datetime] = None,
+        is_catchup: bool = False
     ) -> List[Candle]:
+        # Decoupled concurrency: Use catchup semaphore (1 slot) for background recovery,
+        # preserving live semaphore (3 slots) unblocked for live worker cycles & user chart requests.
+        use_catchup_sem = is_catchup or (start is not None or end is not None)
+        target_semaphore = self._get_catchup_semaphore() if use_catchup_sem else self._get_live_semaphore()
+
         # If date range is requested, bypass the short-term live TTL cache
         if start is not None or end is not None:
-            async with self._get_semaphore():
+            async with target_semaphore:
                 return await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit, start, end)
 
         cache_key = self._get_cache_key(ticker, timeframe)
@@ -164,7 +187,7 @@ class YahooFinanceProvider(MarketDataProvider):
 
         async def _do_fetch() -> List[Candle]:
             try:
-                async with self._get_semaphore():
+                async with target_semaphore:
                     candles = await asyncio.to_thread(self._sync_fetch, ticker, timeframe, limit, None, None)
                 if candles:
                     self._cache[cache_key] = {
@@ -224,4 +247,8 @@ class YahooFinanceProvider(MarketDataProvider):
         except Exception:
             pass
         return None
+
+
+# Alias for backward compatibility
+YFinanceProvider = YahooFinanceProvider
 

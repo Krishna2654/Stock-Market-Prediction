@@ -37,12 +37,16 @@ class UpstoxProvider(MarketDataProvider):
         symbol: str,
         ticker: str,
         timeframe: str,
-        limit: int = 300
+        limit: int = 300,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        is_catchup: bool = False,
+        **kwargs
     ) -> List[Candle]:
         if not self.is_configured:
             # Fall back gracefully to preserve live charts
-            return await self._fallback.fetch_candles(symbol, ticker, timeframe, limit)
-        return await self._fallback.fetch_candles(symbol, ticker, timeframe, limit)
+            return await self._fallback.fetch_candles(symbol, ticker, timeframe, limit, start, end, is_catchup=is_catchup, **kwargs)
+        return await self._fallback.fetch_candles(symbol, ticker, timeframe, limit, start, end, is_catchup=is_catchup, **kwargs)
 
     async def get_multi_timeframe_data(
         self,

@@ -47,7 +47,9 @@ class MockMarketDataProvider(MarketDataProvider):
         timeframe: str,
         limit: int = 300,
         start: Optional[datetime] = None,
-        end: Optional[datetime] = None
+        end: Optional[datetime] = None,
+        is_catchup: bool = False,
+        **kwargs
     ) -> List[Candle]:
         self._call_count += 1
         if self._fail_on_call is not None and self._call_count == self._fail_on_call:

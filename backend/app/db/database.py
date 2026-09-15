@@ -1,6 +1,8 @@
 import logging
+import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Iterator, Optional
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -32,6 +34,29 @@ def get_database_path() -> Path:
     backend_data_dir = Path(__file__).resolve().parent.parent.parent / "data"
     backend_data_dir.mkdir(parents=True, exist_ok=True)
     return backend_data_dir / configured
+
+
+@contextmanager
+def get_sync_sqlite_connection(db_path: Optional[Path] = None, timeout: float = 10.0) -> Iterator[sqlite3.Connection]:
+    """
+    Synchronous SQLite connection context manager with WAL journal mode and busy_timeout=5000.
+    Prevents database locked errors across concurrent threads and background workers.
+    """
+    target_path = db_path or get_database_path()
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(target_path), timeout=timeout)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA foreign_keys=ON;")
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def create_engine_and_sessionmaker(

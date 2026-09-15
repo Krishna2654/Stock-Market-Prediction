@@ -312,17 +312,34 @@ async def get_instrument_detail(symbol: str):
         pass
     return synthesis
 
+from app.analysis.chart_cache import worker_chart_cache, build_chart_payload
+
+# Alias for backward compatibility
+compute_chart_payload = build_chart_payload
+
+def update_chart_cache(symbol: str, timeframe: str, data: Dict[str, Any], limit: int = 250):
+    """Primes or updates in-memory chart cache for instant 0ms responses."""
+    cache_key = f"{symbol}_{timeframe}_{limit}"
+    _chart_cache[cache_key] = (time.time(), data)
+    worker_chart_cache.set(symbol, timeframe, data)
+
 @router.get("/chart/{symbol:path}")
 async def get_chart_data(
     symbol: str,
     timeframe: str = Query("15M", pattern="^(4H|1H|15M|5M)$"),
     limit: int = Query(250, ge=30, le=500)
 ):
+    # 1. Ultra-fast path: Return worker precomputed buffer (<1ms)
+    worker_data = worker_chart_cache.get(symbol, timeframe)
+    if worker_data is not None:
+        return worker_data
+
     cache_key = f"{symbol}_{timeframe}_{limit}"
     now = time.time()
+    # Generous 60s TTL matching candle interval - returns precomputed data in <50ms!
     if cache_key in _chart_cache:
         c_time, c_data = _chart_cache[cache_key]
-        if (now - c_time) < 30.0:  # Fresh for 30s -> Instant return!
+        if (now - c_time) < 60.0:
             return c_data
 
     if cache_key in _chart_in_flight:
@@ -337,108 +354,14 @@ async def get_chart_data(
             target = next((i for i in configured_instruments if i.symbol.upper() == symbol.upper()), None)
             ticker = target.ticker if target else symbol
 
-            candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit)
+            # Request via live priority semaphore (never blocked by background catch-up)
+            candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit, is_catchup=False)
             if not candles:
                 raise HTTPException(status_code=404, detail=f"No candle data available for {symbol} on {timeframe}")
 
-            df_indicators, _ = TechnicalIndicatorEngine.compute_all_indicators(candles)
-            tf_clean = (timeframe or "15M").upper()
-            eff_swing_length = 3 if tf_clean in ["5M", "1M", "3M"] else 5
-            swings, protected_swing = SwingDetector.detect_swings(candles, swing_length=eff_swing_length, confirmation_candles=2)
-            breaks = BOSCHoCHDetector.detect_structure_breaks(
-                candles=candles,
-                swings=swings,
-                symbol=symbol,
-                timeframe=timeframe,
-                df_indicators=df_indicators
-            )
-            trendlines = TrendlineDetector.fit_trendlines(candles, swings, max_lines_per_direction=settings.MAX_TRENDLINES_PER_DIRECTION)
-            atr_val = float(df_indicators["atr_14"].iloc[-1]) if "atr_14" in df_indicators and not pd.isna(df_indicators["atr_14"].iloc[-1]) else (candles[-1].close * 0.005)
-            
-            # Standard trendline breaks
-            tl_breaks = TrendlineDetector.detect_trendline_breaks(candles, trendlines, symbol, timeframe, atr_val=atr_val)
-            for tb in tl_breaks:
-                breaks.append(tb)
-
-            # Precision Breakouts (Notification 1 & 2)
-            tl_ema_vol_breaks = PrecisionBreakoutDetector.detect_trendline_ema_volume_breakouts(
-                candles=candles, trendlines=trendlines, df_indicators=df_indicators,
-                symbol=symbol, timeframe=timeframe, atr_val=atr_val,
-                good_volume_threshold=settings.GOOD_VOLUME_THRESHOLD
-            )
-            for pb in tl_ema_vol_breaks:
-                breaks.append(pb)
-
-            sr_summary = SupportResistanceDetector.detect_levels(candles, swings, timeframe)
-            key_sups = [lvl.price for lvl in sr_summary.all_levels if lvl.level_type == "SUPPORT"]
-            key_res = [lvl.price for lvl in sr_summary.all_levels if lvl.level_type == "RESISTANCE"]
-
-            wm_breaks, confirmed_wm_patterns, active_wm_pattern, debug_wm_candidates = PrecisionBreakoutDetector.detect_wm_patterns(
-                candles=candles, swings=swings, trendlines=trendlines, df_indicators=df_indicators,
-                symbol=symbol, timeframe=timeframe, atr_val=atr_val,
-                price_tolerance_atr=settings.W_M_SWING_TOLERANCE_ATR,
-                min_depth_atr=settings.MIN_PATTERN_DEPTH_ATR,
-                min_bar_spacing=settings.MIN_W_M_SWING_SEPARATION,
-                key_supports=key_sups,
-                key_resistances=key_res
-            )
-            for wb in wm_breaks:
-                breaks.append(wb)
-
-            # Single Source of Truth: Synchronize canonical chart patterns with mw_breakout_engine
-            canonical_active_alert = mw_breakout_engine.sync_chart_patterns(
-                symbol=symbol,
-                timeframe=timeframe,
-                confirmed_patterns=confirmed_wm_patterns,
-                active_pattern=active_wm_pattern,
-                candles=candles,
-                ticker=ticker
-            )
-
-            predictive_scenarios = PredictiveScenarioEngine.compute_scenarios(
-                candles=candles,
-                swings=swings,
-                sr_summary=sr_summary,
-                recent_events=breaks,
-                timeframe=timeframe,
-                symbol=symbol
-            )
-
-            chart_candles = []
-            for i, c in enumerate(candles):
-                row = df_indicators.iloc[i] if i < len(df_indicators) else None
-                item = {
-                    "time": c.timestamp,
-                    "open": c.open,
-                    "high": c.high,
-                    "low": c.low,
-                    "close": c.close,
-                    "volume": c.volume,
-                    "rsi_14": float(row["rsi_14"]) if row is not None and "rsi_14" in row and not pd.isna(row["rsi_14"]) else None,
-                    "ema_20": float(row["ema_20"]) if row is not None and "ema_20" in row and not pd.isna(row["ema_20"]) else None,
-                    "ema_50": float(row["ema_50"]) if row is not None and "ema_50" in row and not pd.isna(row["ema_50"]) else None,
-                    "ema_200": float(row["ema_200"]) if row is not None and "ema_200" in row and not pd.isna(row["ema_200"]) else None,
-                    "atr_14": float(row["atr_14"]) if row is not None and "atr_14" in row and not pd.isna(row["atr_14"]) else None
-                }
-                chart_candles.append(item)
-
-            resp_data = {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "candles": chart_candles,
-                "swings": [s.model_dump() for s in swings],
-                "protected_swing": protected_swing.model_dump() if protected_swing else None,
-                "structure_breaks": [b.model_dump() for b in breaks],
-                "breaks": [b.model_dump() for b in breaks],
-                "trendlines": trendlines,
-                "support_resistance": sr_summary.model_dump(),
-                "predictive_scenarios": predictive_scenarios,
-                "wm_patterns": [p.model_dump() for p in confirmed_wm_patterns],
-                "active_wm_pattern": active_wm_pattern.model_dump() if active_wm_pattern else None,
-                "active_wm_alert": canonical_active_alert.model_dump() if canonical_active_alert else None,
-                "wm_debug_candidates": [c.model_dump() for c in debug_wm_candidates]
-            }
-
+            resp_data = build_chart_payload(symbol, ticker, timeframe, candles)
+            latest_ts = candles[-1].timestamp if candles else None
+            worker_chart_cache.set(symbol, timeframe, resp_data, latest_candle_timestamp=latest_ts)
             _chart_cache[cache_key] = (time.time(), resp_data)
             return resp_data
         finally:

@@ -542,13 +542,6 @@ def get_trendline_shortlist(
     min_score: int = Query(70, description="Minimum trendline score"),
     limit: int = Query(50, description="Max results")
 ):
-    try:
-        from app.api.routes_analysis import _synthesis_cache
-        for _, (_, synth) in list(_synthesis_cache.items()):
-            trendline_shortlist_engine.process_synthesis(synth)
-    except Exception:
-        pass
-
     return trendline_shortlist_engine.get_shortlist(
         symbol=symbol,
         timeframe=timeframe,

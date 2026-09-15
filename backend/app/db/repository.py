@@ -727,7 +727,8 @@ class CheckpointRepository:
             db_path = get_database_path()
             if not db_path.exists():
                 return None
-            with sqlite3.connect(str(db_path)) as conn:
+            with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                conn.execute("PRAGMA busy_timeout = 5000;")
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute(
@@ -755,7 +756,8 @@ class CheckpointRepository:
             db_path = get_database_path()
             if not db_path.exists():
                 return []
-            with sqlite3.connect(str(db_path)) as conn:
+            with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                conn.execute("PRAGMA busy_timeout = 5000;")
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute(
@@ -787,7 +789,8 @@ class CheckpointRepository:
             if not db_path.exists():
                 return False
             now_str = datetime.now(timezone.utc).isoformat()
-            with sqlite3.connect(str(db_path)) as conn:
+            with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                conn.execute("PRAGMA busy_timeout = 5000;")
                 cursor = conn.cursor()
                 cursor.execute(
                     """

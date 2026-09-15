@@ -335,6 +335,17 @@ class MarketProcessingWorker:
         except Exception as e:
             logger.error(f"[MarketProcessingWorker Shortlist Error for {symbol}]: {e}")
 
+        # Precompute chart payloads for immediate UI chart serving (0ms cache hit)
+        try:
+            from app.analysis.chart_cache import worker_chart_cache, build_chart_payload
+            for tf_key, tf_candles in mtf_candles.items():
+                if tf_candles:
+                    chart_payload = build_chart_payload(symbol, ticker, tf_key, tf_candles)
+                    latest_ts = tf_candles[-1].timestamp if tf_candles else None
+                    worker_chart_cache.set(symbol, tf_key, chart_payload, latest_candle_timestamp=latest_ts)
+        except Exception as chart_err:
+            logger.debug(f"[MarketProcessingWorker] Chart precompute error for {symbol}: {chart_err}")
+
         # Advance checkpoints for all timeframes with newly completed candles
         for tf, latest_ts in newly_closed_candles.items():
             CheckpointRepository.update_checkpoint_sync(

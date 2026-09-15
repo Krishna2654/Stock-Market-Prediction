@@ -24,12 +24,14 @@ class MarketDataProvider(ABC):
         timeframe: str,
         limit: int = 300,
         start: Optional[datetime] = None,
-        end: Optional[datetime] = None
+        end: Optional[datetime] = None,
+        is_catchup: bool = False
     ) -> List[Candle]:
         """
         Fetch OHLCV candles for a given ticker and timeframe.
         Timeframe: "4H", "1H", "15M", "5M"
         Optional start and end datetimes define an exact historical range.
+        Optional is_catchup flags background recovery queries for isolated concurrency.
         """
         pass
 

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime, timezone, timedelta, time as dtime
@@ -158,6 +159,16 @@ class CatchupEngine:
             cls._active_recoveries.discard(recovery_key)
 
     @classmethod
+    async def _fetch_candles_safe(cls, provider: MarketDataProvider, **kwargs) -> List[Candle]:
+        try:
+            return await provider.fetch_candles(**kwargs)
+        except TypeError as te:
+            if "is_catchup" in str(te):
+                kwargs.pop("is_catchup", None)
+                return await provider.fetch_candles(**kwargs)
+            raise
+
+    @classmethod
     async def _do_recover_instrument_timeframe(
         cls,
         symbol: str,
@@ -177,8 +188,8 @@ class CatchupEngine:
         # 2. Bootstrap initial checkpoint if none exists
         if last_processed_ts is None:
             try:
-                raw_candles = await provider.fetch_candles(
-                    symbol, ticker, timeframe, limit=context_history_bars
+                raw_candles = await cls._fetch_candles_safe(
+                    provider, symbol=symbol, ticker=ticker, timeframe=timeframe, limit=context_history_bars, is_catchup=True
                 )
             except Exception as e:
                 logger.error(f"[CatchupEngine] Failed to bootstrap candles for {symbol} ({timeframe}): {e}")
@@ -266,13 +277,15 @@ class CatchupEngine:
             chunk_start_dt = curr_cp_dt - timedelta(seconds=warmup_seconds)
 
             try:
-                raw_chunk = await provider.fetch_candles(
+                raw_chunk = await cls._fetch_candles_safe(
+                    provider,
                     symbol=symbol,
                     ticker=ticker,
                     timeframe=timeframe,
                     limit=max_fetch_limit,
                     start=chunk_start_dt,
-                    end=now_utc
+                    end=now_utc,
+                    is_catchup=True
                 )
             except Exception as fetch_err:
                 logger.error(f"[CatchupEngine] Fetch error for {symbol} ({timeframe}) on chunk {chunk_iteration}: {fetch_err}")
@@ -321,13 +334,15 @@ class CatchupEngine:
                 oldest_in_history_dt = cls._parse_timestamp(completed_in_history[0].timestamp)
                 while not is_unrecoverable_retention_gap and oldest_in_history_dt > curr_cp_dt:
                     try:
-                        older_chunk = await provider.fetch_candles(
+                        older_chunk = await cls._fetch_candles_safe(
+                            provider,
                             symbol=symbol,
                             ticker=ticker,
                             timeframe=timeframe,
                             limit=max_fetch_limit,
                             start=chunk_start_dt,
-                            end=oldest_in_history_dt
+                            end=oldest_in_history_dt,
+                            is_catchup=True
                         )
                     except Exception as older_err:
                         logger.warning(f"[CatchupEngine] Failed to fetch older chunk for {symbol} ({timeframe}): {older_err}")
@@ -561,6 +576,8 @@ class CatchupEngine:
                     provider=provider
                 )
                 results.append(res)
+                # Cooperatively yield the event loop to live worker tasks and incoming API requests
+                await asyncio.sleep(0.05)
 
         total_processed = sum(r.get("candles_processed", 0) for r in results)
         logger.info(f"[CatchupEngine] Catch-up complete: {total_processed} total missed candles processed.")
