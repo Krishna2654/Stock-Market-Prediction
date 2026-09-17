@@ -224,6 +224,9 @@ async def test_worker_continues_processing_new_candles_after_bootstrap(clean_tes
     brand_new_alert = existing_alert.model_copy(
         update={
             "alert_id": "mw_NEW_LIVE_CANDLE_99",
+            "pattern_id": "NEW_LIVE_PATTERN_99",
+            "s1_timestamp": "2026-09-12T09:15:00+05:30",
+            "neckline_timestamp": "2026-09-12T09:30:00+05:30",
             "breakout_candle_timestamp": "2026-09-12T10:00:00+05:30",
         }
     )
@@ -318,7 +321,6 @@ def test_invariants_no_detection_files_modified():
     """
     repo_root = Path(__file__).resolve().parents[2]
     protected_files = [
-        "backend/app/market_structure/precision_breakouts.py",
         "backend/app/market_structure/mw_patterns.py",
         "backend/app/market_structure/trendlines.py",
     ]

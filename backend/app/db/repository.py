@@ -55,16 +55,16 @@ class MWAlertRepository:
     async def ingest_alert_safe(
         self,
         alert: MWBreakoutAlert,
+        deduplicate_structural: bool = True,
     ) -> Tuple[str, MWBreakoutAlertModel]:
         """
         Executes strict 3-way ingest/migration logic for a physical breakout identity:
-        1. If physical identity does not exist:
-           -> INSERT the new alert and return ('INSERTED', model).
-        2. If physical identity exists AND all stored fields match:
-           -> SKIP safely and return ('SKIPPED', existing_model).
-        3. If physical identity exists BUT any stored field differs:
-           -> DO NOT silently overwrite, recalculate, or merge.
-           -> RAISE MigrationConflictError with complete diff details.
+        1. Not in DB -> INSERT, returns ("INSERTED", new_model)
+        2. In DB with IDENTICAL fields -> SKIP, returns ("SKIPPED", existing_model)
+        3. In DB with CONFLICTING geometry -> RAISES MigrationConflictError (aborts transaction)
+
+        When deduplicate_structural=True (default for live ingestion), if an alert for this
+        exact structural pattern (pattern_id) has already been inserted, returns ("SKIPPED", existing_model).
         """
         existing = await self.get_by_physical_identity(
             symbol=alert.symbol,
@@ -76,13 +76,29 @@ class MWAlertRepository:
         incoming_data = alert.model_dump()
 
         if existing is None:
+            # Check if this structural pattern has already broken out in the database
+            if deduplicate_structural and alert.pattern_id:
+                stmt_structural = select(MWBreakoutAlertModel).where(
+                    MWBreakoutAlertModel.symbol == alert.symbol,
+                    MWBreakoutAlertModel.timeframe == alert.timeframe,
+                    MWBreakoutAlertModel.pattern_type == alert.pattern_type,
+                    MWBreakoutAlertModel.pattern_id == alert.pattern_id,
+                ).order_by(MWBreakoutAlertModel.breakout_candle_timestamp.asc())
+                res_structural = await self.session.execute(stmt_structural)
+                existing_structural = res_structural.scalars().first()
+                if existing_structural is not None:
+                    return "SKIPPED", existing_structural
+
             new_model = MWBreakoutAlertModel(**incoming_data)
             self.session.add(new_model)
             await self.session.flush()
             return "INSERTED", new_model
 
-        # Identity exists: verify field-by-field parity
-        existing_data = existing.to_dict()
+        # Identity already exists: verify field parity across critical geometric properties
+        existing_data = {
+            col.name: getattr(existing, col.name)
+            for col in existing.__table__.columns
+        }
         diffs = {}
         for field, in_val in incoming_data.items():
             ex_val = existing_data.get(field)
@@ -112,8 +128,8 @@ class MWAlertRepository:
         self,
         alert: MWBreakoutAlert,
     ) -> Tuple[str, MWBreakoutAlertModel]:
-        """Backward-compatible alias for ingest_alert_safe."""
-        return await self.ingest_alert_safe(alert)
+        """Backward-compatible alias for ingest_alert_safe preserving lossless historical migration."""
+        return await self.ingest_alert_safe(alert, deduplicate_structural=False)
 
     async def get_active_alerts(
         self,

@@ -849,6 +849,10 @@ class PrecisionBreakoutDetector:
         events: List[StructureBreakEvent] = []
         confirmed_patterns: List[WMPatternStructure] = []
         debug_candidates: List[WMPatternStructure] = []
+        confirmed_structural_keys: Set[Tuple[str, str, str]] = set()
+        confirmed_pattern_ids: Set[str] = set()
+        confirmed_w_l1_timestamps: Set[str] = set()
+        confirmed_m_h1_timestamps: Set[str] = set()
         n = len(candles)
         min_breakout_dist = max(0.0001, min_breakout_dist_atr * atr_val)
 
@@ -1376,7 +1380,16 @@ class PrecisionBreakoutDetector:
                     continuation_rejected=False
                 )
 
-                if structural_break_idx is not None or is_target_1_hit or is_target_2_hit or is_invalidated:
+                m_struct_key = ("M", h1.timestamp, mid_trough.timestamp)
+                if structural_break_idx is not None:
+                    if m_struct_key in confirmed_structural_keys or pattern_id in confirmed_pattern_ids:
+                        debug_candidates.append(m_pattern_obj)
+                        continue
+                    confirmed_structural_keys.add(m_struct_key)
+                    confirmed_pattern_ids.add(pattern_id)
+                    confirmed_m_h1_timestamps.add(h1.timestamp)
+                    confirmed_patterns.append(m_pattern_obj)
+                elif is_target_1_hit or is_target_2_hit or is_invalidated:
                     confirmed_patterns.append(m_pattern_obj)
                 debug_candidates.append(m_pattern_obj)
 
@@ -1928,7 +1941,16 @@ class PrecisionBreakoutDetector:
                     continuation_rejected=False
                 )
 
-                if structural_break_idx is not None or is_target_1_hit or is_target_2_hit or is_invalidated:
+                w_struct_key = ("W", l1.timestamp, mid_peak.timestamp)
+                if structural_break_idx is not None:
+                    if w_struct_key in confirmed_structural_keys or pattern_id in confirmed_pattern_ids:
+                        debug_candidates.append(w_pattern_obj)
+                        continue
+                    confirmed_structural_keys.add(w_struct_key)
+                    confirmed_pattern_ids.add(pattern_id)
+                    confirmed_w_l1_timestamps.add(l1.timestamp)
+                    confirmed_patterns.append(w_pattern_obj)
+                elif is_target_1_hit or is_target_2_hit or is_invalidated:
                     confirmed_patterns.append(w_pattern_obj)
                 debug_candidates.append(w_pattern_obj)
 
@@ -1982,6 +2004,8 @@ class PrecisionBreakoutDetector:
         if tf_clean in ["5M", "1M", "3M"]:
             # Evaluate Fast W Reversals
             for l1 in low_swings:
+                if l1.timestamp in confirmed_w_l1_timestamps:
+                    continue
                 is_valid_trend, _ = cls._validate_reversal_context(
                     candles=candles, swings=swings, point_1=l1, pattern_type="W", atr_val=atr_val, timeframe=timeframe, df_indicators=df_indicators
                 )
@@ -1989,14 +2013,24 @@ class PrecisionBreakoutDetector:
                     continue
                 
                 l1_date = l1.timestamp.split("T")[0] if "T" in str(l1.timestamp) else str(l1.timestamp)[:10]
+                w_fast_confirmed_for_l1 = False
                 for idx_c in range(l1.index + 2, min(l1.index + 12, len(candles))):
+                    if w_fast_confirmed_for_l1:
+                        break
                     c_neck = candles[idx_c]
                     neck_date = c_neck.timestamp.split("T")[0] if "T" in str(c_neck.timestamp) else str(c_neck.timestamp)[:10]
                     if neck_date != l1_date:
                         break
                     
+                    pat_id = f"{symbol}_{timeframe}_W_FAST_{l1.timestamp}_{c_neck.timestamp}"
+                    fast_w_struct_key = ("W", l1.timestamp, c_neck.timestamp)
+                    if fast_w_struct_key in confirmed_structural_keys or pat_id in confirmed_pattern_ids:
+                        continue
+
                     if c_neck.high >= l1.price + 0.80 * atr_val:
                         for idx_l2 in range(idx_c + 1, min(idx_c + 8, len(candles))):
+                            if w_fast_confirmed_for_l1:
+                                break
                             if idx_l2 - l1.index < 4:
                                 continue
                             c_l2 = candles[idx_l2]
@@ -2023,6 +2057,8 @@ class PrecisionBreakoutDetector:
                                         break
                                     
                                     if c_brk.close > c_neck.high:
+                                        if fast_w_struct_key in confirmed_structural_keys or pat_id in confirmed_pattern_ids or l1.timestamp in confirmed_w_l1_timestamps:
+                                            break
                                         if any(p.breakout_candle_time == c_brk.timestamp and p.pattern_type == "W" for p in confirmed_patterns):
                                             break
                                         
@@ -2156,10 +2192,16 @@ class PrecisionBreakoutDetector:
                                             target_analysis=target_analysis,
                                             notes=f"🟢 W FAST BREAKOUT ↑: L1 {l1.price:.2f} -> Neckline {c_neck.high:.2f} -> L2 {c_l2.low:.2f} | Breakout Close: {c_brk.close:.2f} at {c_brk.timestamp}"
                                         ))
+                                        confirmed_structural_keys.add(fast_w_struct_key)
+                                        confirmed_pattern_ids.add(pat_id)
+                                        confirmed_w_l1_timestamps.add(l1.timestamp)
+                                        w_fast_confirmed_for_l1 = True
                                         break
 
             # Evaluate Fast M Reversals
             for h1 in high_swings:
+                if h1.timestamp in confirmed_m_h1_timestamps:
+                    continue
                 is_valid_trend, _ = cls._validate_reversal_context(
                     candles=candles, swings=swings, point_1=h1, pattern_type="M", atr_val=atr_val, timeframe=timeframe, df_indicators=df_indicators
                 )
@@ -2167,19 +2209,29 @@ class PrecisionBreakoutDetector:
                     continue
                 
                 h1_date = h1.timestamp.split("T")[0] if "T" in str(h1.timestamp) else str(h1.timestamp)[:10]
+                m_fast_confirmed_for_h1 = False
                 for idx_c in range(h1.index + 2, min(h1.index + 12, len(candles))):
+                    if m_fast_confirmed_for_h1:
+                        break
                     c_neck = candles[idx_c]
                     neck_date = c_neck.timestamp.split("T")[0] if "T" in str(c_neck.timestamp) else str(c_neck.timestamp)[:10]
                     if neck_date != h1_date:
                         break
-                    
+
+                    pat_id = f"{symbol}_{timeframe}_M_FAST_{h1.timestamp}_{c_neck.timestamp}"
+                    fast_m_struct_key = ("M", h1.timestamp, c_neck.timestamp)
+                    if fast_m_struct_key in confirmed_structural_keys or pat_id in confirmed_pattern_ids:
+                        continue
+
                     if c_neck.low <= h1.price - 0.80 * atr_val:
                         for idx_h2 in range(idx_c + 1, min(idx_c + 8, len(candles))):
+                            if m_fast_confirmed_for_h1:
+                                break
                             if idx_h2 - h1.index < 4:
                                 continue
                             c_h2 = candles[idx_h2]
-                            h2_date = c_h2.timestamp.split("T")[0] if "T" in str(c_h2.timestamp) else str(c_h2.timestamp)[:10]
-                            if h2_date != h1_date:
+                            l2_date = c_h2.timestamp.split("T")[0] if "T" in str(c_h2.timestamp) else str(c_h2.timestamp)[:10]
+                            if l2_date != h1_date:
                                 break
                             
                             # Symmetry and genuine double top bounce guard:
@@ -2201,6 +2253,8 @@ class PrecisionBreakoutDetector:
                                         break
                                     
                                     if c_brk.close < c_neck.low:
+                                        if fast_m_struct_key in confirmed_structural_keys or pat_id in confirmed_pattern_ids or h1.timestamp in confirmed_m_h1_timestamps:
+                                            break
                                         if any(p.breakout_candle_time == c_brk.timestamp and p.pattern_type == "M" for p in confirmed_patterns):
                                             break
                                         
@@ -2334,11 +2388,54 @@ class PrecisionBreakoutDetector:
                                             target_analysis=target_analysis,
                                             notes=f"🔴 M FAST BREAKOUT ↓: H1 {h1.price:.2f} -> Neckline {c_neck.low:.2f} -> H2 {c_h2.high:.2f} | Breakout Close: {c_brk.close:.2f} at {c_brk.timestamp}"
                                         ))
+                                        confirmed_structural_keys.add(fast_m_struct_key)
+                                        confirmed_pattern_ids.add(pat_id)
+                                        confirmed_m_h1_timestamps.add(h1.timestamp)
+                                        m_fast_confirmed_for_h1 = True
                                         break
 
         # -------------------------------------------------------------
         # 3. SELECT SINGLE ACTIVE PATTERN (Removes Chart Clutter)
         # -------------------------------------------------------------
+        # 1. Structural Deduplication: group confirmed patterns by structural pattern identity
+        # (pattern_type, s1_time, neckline_time), strictly preserving the EARLIEST breakout candle index
+        # (first qualifying completed candle) so that subsequent candles can never overwrite the original breakout.
+        structural_best_patterns: Dict[Tuple[str, str, str], WMPatternStructure] = {}
+        for p in confirmed_patterns:
+            s_key = (p.pattern_type, p.s1_time or "", p.neckline_time or "")
+            if s_key not in structural_best_patterns:
+                structural_best_patterns[s_key] = p
+            else:
+                existing = structural_best_patterns[s_key]
+                ex_idx = existing.breakout_candle_index if existing.breakout_candle_index is not None else 999999
+                new_idx = p.breakout_candle_index if p.breakout_candle_index is not None else 999999
+                if new_idx < ex_idx:
+                    structural_best_patterns[s_key] = p
+                elif new_idx == ex_idx:
+                    ex_is_fast = 0 if "_FAST_" in existing.pattern_id else 1
+                    new_is_fast = 0 if "_FAST_" in p.pattern_id else 1
+                    if (new_is_fast, p.quality_score) > (ex_is_fast, existing.quality_score):
+                        structural_best_patterns[s_key] = p
+
+        confirmed_patterns = list(structural_best_patterns.values())
+
+        # 2. Structural Deduplication for events: ensure only the earliest break event per structure is retained
+        structural_best_events: Dict[Tuple[str, str, str], StructureBreakEvent] = {}
+        for e in events:
+            e_key = (e.pattern_type or "", e.first_swing_time or "", e.neckline_time or "")
+            if e_key not in structural_best_events:
+                structural_best_events[e_key] = e
+            else:
+                existing_e = structural_best_events[e_key]
+                ex_e_idx = existing_e.break_candle_index if existing_e.break_candle_index is not None else 999999
+                new_e_idx = e.break_candle_index if e.break_candle_index is not None else 999999
+                if new_e_idx < ex_e_idx:
+                    structural_best_events[e_key] = e
+                elif new_e_idx == ex_e_idx:
+                    if (e.evidence_score or 0) > (existing_e.evidence_score or 0):
+                        structural_best_events[e_key] = e
+        events = list(structural_best_events.values())
+
         active_pattern: Optional[WMPatternStructure] = None
         # Sort patterns: macro swing patterns take priority over fast patterns, then by breakout index and quality score
         confirmed_patterns.sort(
