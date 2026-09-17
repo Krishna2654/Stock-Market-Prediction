@@ -1,5 +1,6 @@
 import os
 import asyncio
+from datetime import datetime
 from typing import List, Dict, Optional
 from app.data.base import MarketDataProvider
 from app.data.yfinance_provider import YahooFinanceProvider
@@ -95,11 +96,15 @@ class ZerodhaKiteProvider(MarketDataProvider):
         symbol: str,
         ticker: str,
         timeframe: str,
-        limit: int = 300
+        limit: int = 300,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        is_catchup: bool = False,
+        **kwargs
     ) -> List[Candle]:
         if not self.is_configured:
-            return await self._fallback.fetch_candles(symbol, ticker, timeframe, limit)
-        return await self._fallback.fetch_candles(symbol, ticker, timeframe, limit)
+            return await self._fallback.fetch_candles(symbol, ticker, timeframe, limit, start, end, is_catchup=is_catchup, **kwargs)
+        return await self._fallback.fetch_candles(symbol, ticker, timeframe, limit, start, end, is_catchup=is_catchup, **kwargs)
 
     async def get_multi_timeframe_data(
         self,
