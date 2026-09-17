@@ -54,11 +54,12 @@ class UpstoxProvider(MarketDataProvider):
         symbol: str,
         ticker: str,
         timeframes: List[str] = ["4H", "1H", "15M", "5M"],
-        limit: int = 300
+        limit: int = 300,
+        **kwargs
     ) -> Dict[str, List[Candle]]:
         if not self.is_configured:
-            return await self._fallback.get_multi_timeframe_data(symbol, ticker, timeframes, limit)
-        return await self._fallback.get_multi_timeframe_data(symbol, ticker, timeframes, limit)
+            return await self._fallback.get_multi_timeframe_data(symbol, ticker, timeframes, limit, **kwargs)
+        return await self._fallback.get_multi_timeframe_data(symbol, ticker, timeframes, limit, **kwargs)
 
     async def get_current_price(self, ticker: str) -> Optional[float]:
         if not self.is_configured:
@@ -111,11 +112,12 @@ class ZerodhaKiteProvider(MarketDataProvider):
         symbol: str,
         ticker: str,
         timeframes: List[str] = ["4H", "1H", "15M", "5M"],
-        limit: int = 300
+        limit: int = 300,
+        **kwargs
     ) -> Dict[str, List[Candle]]:
         if not self.is_configured:
-            return await self._fallback.get_multi_timeframe_data(symbol, ticker, timeframes, limit)
-        return await self._fallback.get_multi_timeframe_data(symbol, ticker, timeframes, limit)
+            return await self._fallback.get_multi_timeframe_data(symbol, ticker, timeframes, limit, **kwargs)
+        return await self._fallback.get_multi_timeframe_data(symbol, ticker, timeframes, limit, **kwargs)
 
     async def get_current_price(self, ticker: str) -> Optional[float]:
         if not self.is_configured:

@@ -25,13 +25,18 @@ class MarketDataProvider(ABC):
         limit: int = 300,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
-        is_catchup: bool = False
+        is_catchup: bool = False,
+        is_interactive: bool = False,
+        is_worker: bool = False,
+        **kwargs
     ) -> List[Candle]:
         """
         Fetch OHLCV candles for a given ticker and timeframe.
         Timeframe: "4H", "1H", "15M", "5M"
         Optional start and end datetimes define an exact historical range.
         Optional is_catchup flags background recovery queries for isolated concurrency.
+        Optional is_interactive flags user-driven HTTP requests with priority concurrency.
+        Optional is_worker flags continuous background monitor cycles.
         """
         pass
 
@@ -41,7 +46,10 @@ class MarketDataProvider(ABC):
         symbol: str,
         ticker: str,
         timeframes: List[str] = ["4H", "1H", "15M", "5M"],
-        limit: int = 300
+        limit: int = 300,
+        is_interactive: bool = False,
+        is_worker: bool = False,
+        **kwargs
     ) -> Dict[str, List[Candle]]:
         """
         Fetch OHLCV candles for all 4 timeframes.

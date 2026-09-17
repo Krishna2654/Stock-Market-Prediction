@@ -197,8 +197,20 @@ class MarketProcessingWorker:
                 symbol=symbol,
                 ticker=ticker,
                 timeframes=self.timeframes,
-                limit=200
+                limit=200,
+                is_worker=True
             )
+        except TypeError:
+            try:
+                mtf_candles = await prov.get_multi_timeframe_data(
+                    symbol=symbol,
+                    ticker=ticker,
+                    timeframes=self.timeframes,
+                    limit=200
+                )
+            except Exception as e:
+                logger.error(f"[MarketProcessingWorker] Failed to fetch MTF candles for {symbol}: {e}")
+                return None
         except Exception as e:
             logger.error(f"[MarketProcessingWorker] Failed to fetch MTF candles for {symbol}: {e}")
             return None
@@ -338,15 +350,20 @@ class MarketProcessingWorker:
             logger.error(f"[MarketProcessingWorker Shortlist Error for {symbol}]: {e}")
 
         # Precompute chart payloads for immediate UI chart serving (0ms cache hit)
+        # Skip heavy chart payload recalculation if no new completed candle and cache already populated
         try:
             from app.analysis.chart_cache import worker_chart_cache, build_chart_payload
             for tf_key, tf_candles in mtf_candles.items():
                 if tf_candles:
-                    completed_tf = [c for c in tf_candles if is_candle_closed(c.timestamp, tf_key)]
-                    chart_candles = completed_tf if completed_tf else tf_candles
-                    chart_payload = build_chart_payload(symbol, ticker, tf_key, chart_candles)
-                    latest_ts = chart_candles[-1].timestamp if chart_candles else None
-                    worker_chart_cache.set(symbol, tf_key, chart_payload, latest_candle_timestamp=latest_ts, is_worker_producer=True)
+                    existing_entry = worker_chart_cache.get_entry(symbol, tf_key)
+                    if tf_key in newly_closed_candles or existing_entry is None or not existing_entry.get("payload"):
+                        completed_tf = [c for c in tf_candles if is_candle_closed(c.timestamp, tf_key)]
+                        chart_candles = completed_tf if completed_tf else tf_candles
+                        chart_payload = build_chart_payload(symbol, ticker, tf_key, chart_candles)
+                        latest_ts = chart_candles[-1].timestamp if chart_candles else None
+                        worker_chart_cache.set(
+                            symbol, tf_key, chart_payload, latest_candle_timestamp=latest_ts, is_worker_producer=True
+                        )
         except Exception as chart_err:
             logger.debug(f"[MarketProcessingWorker] Chart precompute error for {symbol}: {chart_err}")
 

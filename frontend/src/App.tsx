@@ -465,6 +465,7 @@ const AppContent: React.FC = () => {
                   onOpenBacktest={() => navigate('/backtest')}
                   onRefreshAll={refreshAllAnalysis}
                   isRefreshing={isLoading}
+                  onSynthesisUpdate={(symbol, synth) => setSyntheses((prev) => ({ ...prev, [symbol]: synth }))}
                 />
               </ErrorBoundary>
             }

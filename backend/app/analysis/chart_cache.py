@@ -1,3 +1,6 @@
+import os
+import json
+from pathlib import Path
 import logging
 import time
 from typing import List, Dict, Any, Optional, Tuple
@@ -165,9 +168,74 @@ class WorkerChartCache:
     - newer completed candle is available
     - worker explicitly marks the entry invalid
     """
+    _CACHE_FILE = Path(__file__).resolve().parents[2] / "data" / "market_chart_cache.json"
+
     def __init__(self):
         self._cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
         self._latest_known_completed: Dict[Tuple[str, str], str] = {}
+        self._load_disk_cache()
+
+    def _load_disk_cache(self) -> None:
+        """
+        Gracefully restores precomputed chart cache from disk.
+        Safely handles missing or corrupted cache files.
+        """
+        if not self._CACHE_FILE.exists():
+            return
+        try:
+            with open(self._CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                return
+            for key_str, entry in data.items():
+                if not isinstance(entry, dict):
+                    continue
+                parts = key_str.split("__")
+                if len(parts) != 2:
+                    continue
+                sym, tf = parts[0].upper(), parts[1].upper()
+                key = (sym, tf)
+                payload = entry.get("payload")
+                latest_ts = entry.get("latest_candle_timestamp")
+                if isinstance(payload, dict) and isinstance(latest_ts, str) and payload.get("candles"):
+                    self._cache[key] = {
+                        "payload": payload,
+                        "latest_candle_timestamp": latest_ts,
+                        "cached_at": entry.get("cached_at", time.time()),
+                        "symbol": sym,
+                        "timeframe": tf,
+                        "is_valid": True,
+                        "producer": entry.get("producer", "worker")
+                    }
+                    self._latest_known_completed[key] = latest_ts
+            logger.info(f"[WorkerChartCache] Restored {len(self._cache)} precomputed chart payloads from disk.")
+        except Exception as e:
+            logger.warning(f"[WorkerChartCache] Disk cache load error (gracefully starting fresh): {e}")
+
+    def _save_disk_cache(self) -> None:
+        """
+        Safely and atomically persists precomputed chart cache to disk.
+        Uses temporary file + atomic rename to prevent corruption.
+        """
+        try:
+            self._CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            dump_data = {}
+            for (sym, tf), entry in self._cache.items():
+                key_str = f"{sym}__{tf}"
+                dump_data[key_str] = {
+                    "payload": entry.get("payload"),
+                    "latest_candle_timestamp": entry.get("latest_candle_timestamp"),
+                    "cached_at": entry.get("cached_at", time.time()),
+                    "symbol": sym,
+                    "timeframe": tf,
+                    "producer": entry.get("producer", "worker")
+                }
+            tmp_file = self._CACHE_FILE.with_suffix(".tmp")
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(dump_data, f)
+            os.replace(tmp_file, self._CACHE_FILE)
+        except Exception as e:
+            logger.warning(f"[WorkerChartCache] Disk cache save warning: {e}")
 
     def record_known_completed_candle(self, symbol: str, timeframe: str, timestamp: str) -> None:
         """
@@ -329,7 +397,32 @@ class WorkerChartCache:
             "is_valid": True,
             "producer": "worker" if is_worker_producer else "fallback"
         }
+        self._save_disk_cache()
         return True
+
+    def get_stale_or_valid(
+        self,
+        symbol: str,
+        timeframe: str
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """
+        Retrieves precomputed chart payload:
+        - If strictly valid under candle-state rules, returns (payload, False).
+        - If expired/stale under candle-state rules but a non-empty payload exists in cache,
+          returns (payload, True) enabling instant Stale-While-Revalidate response.
+        - If no entry exists, returns (None, False).
+        """
+        is_valid, _ = self.is_entry_valid(symbol, timeframe)
+        key = (symbol.upper(), timeframe.upper())
+        entry = self._cache.get(key)
+        if not entry:
+            return None, False
+
+        payload = entry.get("payload")
+        if not isinstance(payload, dict) or not payload.get("candles"):
+            return None, False
+
+        return payload, (not is_valid)
 
     def get(
         self,

@@ -13,36 +13,45 @@ from app.alerts.trendline_shortlist_engine import trendline_shortlist_engine
 from app.alerts.mw_breakout_engine import mw_breakout_engine
 
 
-def test_dual_semaphore_provider_isolation():
-    """Verify YFinanceProvider separates live and catchup semaphores."""
+def test_three_tier_semaphore_provider_isolation():
+    """Verify YFinanceProvider isolates interactive (5), worker (3), and catchup (1) semaphores."""
     prov = YFinanceProvider()
-    assert hasattr(prov, "_live_semaphore")
+    assert hasattr(prov, "_interactive_semaphore")
+    assert hasattr(prov, "_worker_semaphore")
     assert hasattr(prov, "_catchup_semaphore")
+    assert prov._interactive_semaphore._value == 5
+    assert prov._worker_semaphore._value == 3
+    # Backward compatibility alias
+    assert prov._live_semaphore is prov._worker_semaphore
     assert prov._live_semaphore._value == 3
-    assert prov._catchup_semaphore._value == 1
 
 
 @pytest.mark.asyncio
-async def test_live_requests_never_wait_behind_catchup():
-    """Verify live requests execute concurrently without being blocked by catchup operations."""
+async def test_interactive_requests_never_wait_behind_worker_or_catchup():
+    """Verify interactive user requests execute concurrently without being blocked by worker or catchup operations."""
     prov = YFinanceProvider()
 
-    # Acquire catchup semaphore (simulating a running catchup chunk)
+    # Saturate both catchup and worker semaphores
     await prov._catchup_semaphore.acquire()
     assert prov._catchup_semaphore.locked()
 
-    # Live semaphore should still have full capacity of 3
-    assert prov._live_semaphore._value == 3
+    for _ in range(3):
+        await prov._worker_semaphore.acquire()
+    assert prov._worker_semaphore.locked()
 
-    # A live request must be able to acquire immediately without blocking
+    # Interactive semaphore should still have full capacity of 5
+    assert prov._interactive_semaphore._value == 5
+
+    # An interactive request must be able to acquire immediately without blocking
     acquired = False
-    async with prov._live_semaphore:
+    async with prov._interactive_semaphore:
         acquired = True
     assert acquired is True
 
-    # Release catchup
+    # Clean up
     prov._catchup_semaphore.release()
-    assert not prov._catchup_semaphore.locked()
+    for _ in range(3):
+        prov._worker_semaphore.release()
 
 
 from datetime import datetime, timezone, timedelta
@@ -345,3 +354,93 @@ def test_invariants_preserved():
     assert hasattr(trendlines.TrendlineDetector, "fit_trendlines")
     assert hasattr(trendlines.TrendlineDetector, "detect_trendline_breaks")
     assert hasattr(mw_breakout_engine.mw_breakout_engine, "process_synthesis_with_updates")
+
+
+def test_worker_chart_cache_stale_while_revalidate():
+    """Verify get_stale_or_valid returns stale cached data immediately when a newer candle is known."""
+    cache = WorkerChartCache()
+    now_utc = datetime.now(timezone.utc)
+    candle_ts = (now_utc - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:00Z")
+    newer_ts = (now_utc - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:00Z")
+
+    dummy_payload = {
+        "symbol": "INFY",
+        "timeframe": "15M",
+        "candles": [{"time": candle_ts, "open": 1500, "high": 1510, "low": 1490, "close": 1505, "volume": 500}]
+    }
+    cache.set("INFY", "15M", dummy_payload, latest_candle_timestamp=candle_ts, is_worker_producer=True)
+
+    # 1. While current, get_stale_or_valid returns (payload, False) -> valid
+    payload, is_stale = cache.get_stale_or_valid("INFY", "15M")
+    assert payload is not None
+    assert is_stale is False
+
+    # 2. Worker observes newer completed candle
+    cache.record_known_completed_candle("INFY", "15M", newer_ts)
+
+    # 3. get() returns None because strictly valid has lapsed
+    assert cache.get("INFY", "15M") is None
+
+    # 4. But get_stale_or_valid returns (payload, True) -> stale-while-revalidate enabled!
+    payload, is_stale = cache.get_stale_or_valid("INFY", "15M")
+    assert payload is not None
+    assert is_stale is True
+    assert payload["candles"][0]["time"] == candle_ts
+
+
+def test_worker_chart_cache_disk_persistence(tmp_path):
+    """Verify chart cache atomically saves to disk and restores correctly on restart."""
+    import tempfile
+    from pathlib import Path
+
+    cache = WorkerChartCache()
+    # Point cache file to temporary path
+    temp_cache_file = tmp_path / "test_chart_cache.json"
+    cache._CACHE_FILE = temp_cache_file
+
+    now_utc = datetime.now(timezone.utc)
+    candle_ts = (now_utc - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:00Z")
+    dummy_payload = {
+        "symbol": "PERSIST_TEST",
+        "timeframe": "1H",
+        "candles": [{"time": candle_ts, "open": 100, "high": 110, "low": 95, "close": 105, "volume": 1000}]
+    }
+
+    cache.set("PERSIST_TEST", "1H", dummy_payload, latest_candle_timestamp=candle_ts, is_worker_producer=True)
+
+    # File should exist and contain valid JSON
+    assert temp_cache_file.exists()
+
+    # Create a brand new WorkerChartCache instance pointing to the same file
+    restored_cache = WorkerChartCache()
+    restored_cache._CACHE_FILE = temp_cache_file
+    restored_cache._load_disk_cache()
+
+    entry = restored_cache.get("PERSIST_TEST", "1H")
+    assert entry is not None
+    assert entry["symbol"] == "PERSIST_TEST"
+    assert entry["candles"][0]["time"] == candle_ts
+
+
+def test_read_endpoints_purity():
+    """Verify /overview and /detail GET endpoints are pure reads with NO alert engine evaluations."""
+    client = TestClient(app)
+
+    with patch("app.alerts.engine.alert_engine.process_synthesis_for_alerts") as mock_alerts, \
+         patch("app.alerts.mw_breakout_engine.mw_breakout_engine.process_synthesis_with_updates") as mock_mw, \
+         patch("app.api.routes_analysis._schedule_background_refresh") as mock_bg:
+
+        # Test GET /api/analysis/overview
+        resp_overview = client.get("/api/analysis/overview")
+        assert resp_overview.status_code == 200
+
+        # Neither alert engine should have been called by the read endpoint
+        mock_alerts.assert_not_called()
+        mock_mw.assert_not_called()
+
+        # Test GET /api/analysis/detail/{symbol}
+        resp_detail = client.get("/api/analysis/detail/NIFTY%2050")
+        assert resp_detail.status_code == 200
+
+        mock_alerts.assert_not_called()
+        mock_mw.assert_not_called()

@@ -143,24 +143,6 @@ def _schedule_background_refresh(symbol: str, ticker: str, provider):
             synth = await _analyze_instrument(symbol, ticker, provider)
             update_synthesis_cache(symbol, synth)
 
-            # Broadcast WebSocket updates and evaluate alerts
-            try:
-                alert_engine.process_synthesis_for_alerts(synth)
-            except Exception:
-                pass
-            try:
-                high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synth)
-            except Exception:
-                pass
-            try:
-                mw_breakout_engine.process_synthesis_with_updates(synth)
-            except Exception:
-                pass
-            try:
-                trendline_shortlist_engine.process_synthesis(synth)
-            except Exception:
-                pass
-
             asyncio.create_task(ws_manager.broadcast({
                 "type": "SYNTHESIS_UPDATE",
                 "symbol": symbol,
@@ -207,49 +189,20 @@ async def get_all_instruments_overview():
     for res in results:
         if isinstance(res, MultiTimeframeSynthesis):
             valid_syntheses.append(res)
-            try:
-                new_alerts = alert_engine.process_synthesis_for_alerts(res)
-                for alert in new_alerts:
-                    asyncio.create_task(ws_manager.broadcast({
-                        "type": "ALERT_TRIGGERED",
-                        "alert": alert.model_dump()
-                    }))
-            except Exception as e:
-                pass
-            try:
-                high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(res)
-            except Exception as e:
-                pass
-            try:
-                new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(res)
-                for mwa in new_mw:
-                    asyncio.create_task(ws_manager.broadcast({
-                        "type": "MW_BREAKOUT_TRIGGERED",
-                        "alert": mwa.model_dump()
-                    }))
-                for mwa in updated_mw:
-                    asyncio.create_task(ws_manager.broadcast({
-                        "type": "MW_BREAKOUT_STATUS_UPDATED",
-                        "alert": mwa.model_dump()
-                    }))
-            except Exception as e:
-                pass
-            try:
-                new_shortlist = trendline_shortlist_engine.process_synthesis(res)
-                for cand in new_shortlist:
-                    asyncio.create_task(ws_manager.broadcast({
-                        "type": "TRENDLINE_SHORTLIST_UPDATED",
-                        "candidate": cand.model_dump()
-                    }))
-            except Exception as e:
-                pass
         elif isinstance(res, Exception):
             print(f"[Overview Error] {res}")
             
     return valid_syntheses
 
 async def _analyze_instrument(symbol: str, ticker: str, provider) -> MultiTimeframeSynthesis:
-    mtf_candles = await provider.get_multi_timeframe_data(symbol, ticker, ["4H", "1H", "15M", "5M"], limit=200)
+    try:
+        mtf_candles = await provider.get_multi_timeframe_data(
+            symbol, ticker, ["4H", "1H", "15M", "5M"], limit=200, is_interactive=True
+        )
+    except TypeError:
+        mtf_candles = await provider.get_multi_timeframe_data(
+            symbol, ticker, ["4H", "1H", "15M", "5M"], limit=200
+        )
     
     has_data = any(len(c) > 0 for c in mtf_candles.values())
     is_stale = False
@@ -274,42 +227,6 @@ async def get_instrument_detail(symbol: str):
     ticker = target.ticker if target else symbol
     
     synthesis = await _analyze_instrument_cached(symbol, ticker, provider)
-    try:
-        new_alerts = alert_engine.process_synthesis_for_alerts(synthesis)
-        for alert in new_alerts:
-            asyncio.create_task(ws_manager.broadcast({
-                "type": "ALERT_TRIGGERED",
-                "alert": alert.model_dump()
-            }))
-    except Exception:
-        pass
-    try:
-        high_confluence_alert_engine.process_synthesis_for_high_confluence_alerts(synthesis)
-    except Exception:
-        pass
-    try:
-        new_mw, updated_mw = mw_breakout_engine.process_synthesis_with_updates(synthesis)
-        for mwa in new_mw:
-            asyncio.create_task(ws_manager.broadcast({
-                "type": "MW_BREAKOUT_TRIGGERED",
-                "alert": mwa.model_dump()
-            }))
-        for mwa in updated_mw:
-            asyncio.create_task(ws_manager.broadcast({
-                "type": "MW_BREAKOUT_STATUS_UPDATED",
-                "alert": mwa.model_dump()
-            }))
-    except Exception:
-        pass
-    try:
-        new_shortlist = trendline_shortlist_engine.process_synthesis(synthesis)
-        for cand in new_shortlist:
-            asyncio.create_task(ws_manager.broadcast({
-                "type": "TRENDLINE_SHORTLIST_UPDATED",
-                "candidate": cand.model_dump()
-            }))
-    except Exception:
-        pass
     return synthesis
 
 from app.analysis.chart_cache import worker_chart_cache, build_chart_payload
@@ -329,19 +246,47 @@ async def get_chart_data(
     timeframe: str = Query("15M", pattern="^(4H|1H|15M|5M)$"),
     limit: int = Query(250, ge=30, le=500)
 ):
-    # 1. Ultra-fast path: Return worker precomputed buffer (<1ms)
-    worker_data = worker_chart_cache.get(symbol, timeframe)
-    if worker_data is not None:
-        return worker_data
-
     cache_key = f"{symbol}_{timeframe}_{limit}"
+
+    # 1. Ultra-fast path: Return worker precomputed buffer (<1ms) with stale-while-revalidate
+    payload, is_stale = worker_chart_cache.get_stale_or_valid(symbol, timeframe)
+    if payload is not None:
+        if is_stale and cache_key not in _chart_in_flight:
+            async def _bg_revalidate():
+                try:
+                    provider = get_current_provider()
+                    target = next((i for i in configured_instruments if i.symbol.upper() == symbol.upper()), None)
+                    ticker = target.ticker if target else symbol
+                    try:
+                        candles = await provider.fetch_candles(
+                            symbol, ticker, timeframe, limit=limit, is_interactive=True
+                        )
+                    except TypeError:
+                        candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit)
+                    if candles:
+                        resp_data = build_chart_payload(symbol, ticker, timeframe, candles)
+                        latest_ts = candles[-1].timestamp if candles else None
+                        worker_chart_cache.set(
+                            symbol, timeframe, resp_data, latest_candle_timestamp=latest_ts, is_worker_producer=False
+                        )
+                        _chart_cache[cache_key] = (time.time(), resp_data)
+                except Exception as e:
+                    logger.debug(f"[RoutesAnalysis] Stale chart bg revalidation error for {symbol}: {e}")
+                finally:
+                    _chart_in_flight.pop(cache_key, None)
+
+            task = asyncio.create_task(_bg_revalidate())
+            _chart_in_flight[cache_key] = task
+        return payload
+
     now = time.time()
-    # Generous 60s TTL matching candle interval - returns precomputed data in <50ms!
+    # 2. In-memory chart cache fallback
     if cache_key in _chart_cache:
         c_time, c_data = _chart_cache[cache_key]
         if (now - c_time) < 60.0:
             return c_data
 
+    # 3. Deduplicate in-flight computation
     if cache_key in _chart_in_flight:
         try:
             return await _chart_in_flight[cache_key]
@@ -354,11 +299,13 @@ async def get_chart_data(
             target = next((i for i in configured_instruments if i.symbol.upper() == symbol.upper()), None)
             ticker = target.ticker if target else symbol
 
-            # Request via live priority semaphore (never blocked by background catch-up)
+            # Request via interactive priority semaphore (never blocked by background worker or catch-up)
             try:
-                candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit, is_catchup=False)
+                candles = await provider.fetch_candles(
+                    symbol, ticker, timeframe, limit=limit, is_catchup=False, is_interactive=True
+                )
             except TypeError as te:
-                if "is_catchup" in str(te):
+                if "is_interactive" in str(te) or "is_catchup" in str(te):
                     candles = await provider.fetch_candles(symbol, ticker, timeframe, limit=limit)
                 else:
                     raise
@@ -367,7 +314,9 @@ async def get_chart_data(
 
             resp_data = build_chart_payload(symbol, ticker, timeframe, candles)
             latest_ts = candles[-1].timestamp if candles else None
-            worker_chart_cache.set(symbol, timeframe, resp_data, latest_candle_timestamp=latest_ts, is_worker_producer=False)
+            worker_chart_cache.set(
+                symbol, timeframe, resp_data, latest_candle_timestamp=latest_ts, is_worker_producer=False
+            )
             _chart_cache[cache_key] = (time.time(), resp_data)
             return resp_data
         finally:

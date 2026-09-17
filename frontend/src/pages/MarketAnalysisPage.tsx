@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   HighConfluenceAlert,
@@ -54,6 +54,7 @@ interface MarketAnalysisPageProps {
   onOpenBacktest?: (alert: HighConfluenceAlert) => void;
   onRefreshAll?: () => Promise<void>;
   isRefreshing?: boolean;
+  onSynthesisUpdate?: (symbol: string, synth: MultiTimeframeSynthesis) => void;
 }
 
 export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
@@ -66,7 +67,8 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
   onOpenAlerts,
   onOpenBacktest,
   onRefreshAll,
-  isRefreshing
+  isRefreshing,
+  onSynthesisUpdate
 }) => {
   const { symbol: rawSymbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
@@ -86,7 +88,47 @@ export const MarketAnalysisPage: React.FC<MarketAnalysisPageProps> = ({
   );
 
   const activeSymbol = matchedInstrument ? matchedInstrument.symbol : (decodedSymbol || (instruments[0]?.symbol || 'NIFTY 50'));
-  const currentSynthesis = syntheses[activeSymbol];
+  
+  const [localSynthesis, setLocalSynthesis] = useState<MultiTimeframeSynthesis | null>(null);
+  const inFlightDetailRef = useRef<string | null>(null);
+
+  const rawSynthesis = syntheses[activeSymbol];
+  const currentSynthesis = (
+    localSynthesis &&
+    normSym(localSynthesis.symbol) === normSym(activeSymbol) &&
+    localSynthesis.timeframes &&
+    Object.keys(localSynthesis.timeframes).length > 0
+  )
+    ? localSynthesis
+    : rawSynthesis;
+
+  // Targeted detail fetch when currentSynthesis is missing or has empty timeframes
+  useEffect(() => {
+    const hasTimeframes = currentSynthesis?.timeframes && Object.keys(currentSynthesis.timeframes).length > 0;
+    if (activeSymbol && !hasTimeframes) {
+      if (inFlightDetailRef.current === activeSymbol) {
+        return; // Deduplicate in-flight detail requests
+      }
+      inFlightDetailRef.current = activeSymbol;
+      api.getInstrumentDetail(activeSymbol)
+        .then((detail) => {
+          if (detail) {
+            setLocalSynthesis(detail);
+            if (onSynthesisUpdate) {
+              onSynthesisUpdate(activeSymbol, detail);
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn(`[MarketAnalysisPage] Targeted detail fetch failed for ${activeSymbol}:`, err);
+        })
+        .finally(() => {
+          if (inFlightDetailRef.current === activeSymbol) {
+            inFlightDetailRef.current = null;
+          }
+        });
+    }
+  }, [activeSymbol, currentSynthesis?.timeframes, onSynthesisUpdate]);
 
   // Central Single Source of Truth for Selected Timeframe (4H, 1H, 15M, 5M)
   const queryTf = searchParams.get('timeframe')?.toUpperCase();
