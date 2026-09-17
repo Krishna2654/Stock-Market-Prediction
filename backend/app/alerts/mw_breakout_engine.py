@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 
 from app.models.schemas import MWBreakoutAlert, MultiTimeframeSynthesis, WMPatternStructure, Candle
 from app.core.config import settings
-from app.db.database import get_database_path, get_session_factory
+from app.db.database import get_database_path, get_session_factory, get_sync_sqlite_connection
 from app.db.repository import MWAlertRepository, MigrationConflictError
 
 logger = logging.getLogger(__name__)
@@ -145,7 +145,7 @@ class MWBreakoutAlertEngine:
                 db_path = get_database_path()
                 if not db_path.exists():
                     return "SKIPPED"
-                with sqlite3.connect(str(db_path)) as conn:
+                with get_sync_sqlite_connection(db_path, timeout=15.0) as conn:
                     cursor = conn.cursor()
 
                     # 1. Structural pattern check: Has this exact structural pattern already broken out in the DB?
@@ -450,9 +450,8 @@ class MWBreakoutAlertEngine:
         for pat in patterns_to_sync:
             is_w = pat.pattern_type == "W"
             breakout_ts = pat.breakout_candle_time or pat.s2_time or now_str
-            clean_break = breakout_ts.replace(":", "-").replace(".", "-")
             clean_pat_id = pat.pattern_id.replace(" ", "_").replace("/", "_").replace(":", "-").replace(".", "-")
-            stable_alert_id = f"mw_{clean_pat_id}_{clean_break}"
+            stable_alert_id = f"mw_{clean_pat_id}"
 
             t_analysis = pat.target_analysis
             measured_target = t_analysis.measured_target if (t_analysis and t_analysis.measured_target) else (
