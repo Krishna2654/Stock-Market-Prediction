@@ -77,12 +77,17 @@ class MWAlertRepository:
 
         if existing is None:
             # Check if this structural pattern has already broken out in the database
-            if deduplicate_structural and alert.pattern_id:
+            if deduplicate_structural:
+                conds = [
+                    (MWBreakoutAlertModel.s1_timestamp == alert.s1_timestamp) & (MWBreakoutAlertModel.neckline_timestamp == alert.neckline_timestamp)
+                ]
+                if alert.pattern_id:
+                    conds.append(MWBreakoutAlertModel.pattern_id == alert.pattern_id)
                 stmt_structural = select(MWBreakoutAlertModel).where(
                     MWBreakoutAlertModel.symbol == alert.symbol,
                     MWBreakoutAlertModel.timeframe == alert.timeframe,
                     MWBreakoutAlertModel.pattern_type == alert.pattern_type,
-                    MWBreakoutAlertModel.pattern_id == alert.pattern_id,
+                    or_(*conds)
                 ).order_by(MWBreakoutAlertModel.breakout_candle_timestamp.asc())
                 res_structural = await self.session.execute(stmt_structural)
                 existing_structural = res_structural.scalars().first()

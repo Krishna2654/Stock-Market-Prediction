@@ -293,7 +293,19 @@ const AppContent: React.FC = () => {
         playAlertSound();
         setMwUnreadCount((c) => c + 1);
         setMwBreakoutAlerts((prev) => {
-          if (prev.some((a) => a.alert_id === mwAlert.alert_id)) return prev;
+          if (
+            prev.some(
+              (a) =>
+                a.alert_id === mwAlert.alert_id ||
+                (a.symbol === mwAlert.symbol &&
+                  a.timeframe === mwAlert.timeframe &&
+                  a.pattern_type === mwAlert.pattern_type &&
+                  a.s1_timestamp === mwAlert.s1_timestamp &&
+                  a.neckline_timestamp === mwAlert.neckline_timestamp)
+            )
+          ) {
+            return prev;
+          }
           return [mwAlert, ...prev];
         });
       }

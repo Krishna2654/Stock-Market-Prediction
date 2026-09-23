@@ -85,7 +85,16 @@ class MWBreakoutAlertModel(Base):
     read = Column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
-        # 1. Physical Breakout Identity Unique Constraint
+        # 1. Structural Breakout Identity Unique Constraint (origin anchors)
+        UniqueConstraint(
+            "symbol",
+            "timeframe",
+            "pattern_type",
+            "s1_timestamp",
+            "neckline_timestamp",
+            name="uq_mw_breakout_structural_identity",
+        ),
+        # 2. Physical Breakout Identity Unique Constraint
         UniqueConstraint(
             "symbol",
             "timeframe",

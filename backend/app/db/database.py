@@ -61,28 +61,41 @@ def get_sync_sqlite_connection(db_path: Optional[Path] = None, timeout: float = 
 
 def create_engine_and_sessionmaker(
     db_path: Optional[Path] = None,
+    database_url: Optional[str] = None,
 ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
-    target_path = db_path or get_database_path()
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    db_url = f"sqlite+aiosqlite:///{target_path.as_posix()}"
+    import os
+    env_db_url = database_url or os.getenv("DATABASE_URL")
+    if env_db_url:
+        db_url = env_db_url
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
+            db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        connect_args = {}
+    else:
+        target_path = db_path or get_database_path()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        db_url = f"sqlite+aiosqlite:///{target_path.as_posix()}"
+        connect_args = {"check_same_thread": False}
 
     eng = create_async_engine(
         db_url,
         echo=False,
         future=True,
-        connect_args={"check_same_thread": False},
+        connect_args=connect_args,
     )
 
-    @event.listens_for(eng.sync_engine, "connect")
-    def _set_sqlite_pragmas(dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        try:
-            cursor.execute("PRAGMA journal_mode=WAL;")
-            cursor.execute("PRAGMA synchronous=NORMAL;")
-            cursor.execute("PRAGMA foreign_keys=ON;")
-            cursor.execute("PRAGMA busy_timeout=5000;")
-        finally:
-            cursor.close()
+    if "sqlite" in db_url:
+        @event.listens_for(eng.sync_engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL;")
+                cursor.execute("PRAGMA synchronous=NORMAL;")
+                cursor.execute("PRAGMA foreign_keys=ON;")
+                cursor.execute("PRAGMA busy_timeout=15000;")
+            finally:
+                cursor.close()
 
     session_factory = async_sessionmaker(
         bind=eng,

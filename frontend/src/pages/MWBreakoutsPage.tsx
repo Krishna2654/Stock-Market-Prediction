@@ -91,7 +91,19 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         date_filter: dateFilter !== 'all' ? dateFilter : undefined,
       });
-      setPaginatedAlerts(data.items);
+      const seenIds = new Set<string>();
+      const seenStructs = new Set<string>();
+      const dedupedItems = (data.items || []).filter((item: MWBreakoutAlert) => {
+        const idKey = item.alert_id;
+        const structKey = `${item.symbol}_${item.timeframe}_${item.pattern_type}_${item.s1_timestamp}_${item.neckline_timestamp}`;
+        if (seenIds.has(idKey) || seenStructs.has(structKey)) {
+          return false;
+        }
+        seenIds.add(idKey);
+        seenStructs.add(structKey);
+        return true;
+      });
+      setPaginatedAlerts(dedupedItems);
       setTotalPages(data.total_pages);
       setTotalCount(data.total);
     } catch (err) {
@@ -107,6 +119,9 @@ export const MWBreakoutsPage: React.FC<MWBreakoutsPageProps> = ({
 
   useEffect(() => {
     loadStats();
+    if (page === 1) {
+      fetchPage();
+    }
   }, [alerts]);
 
   // Handle page navigation

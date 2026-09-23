@@ -67,6 +67,7 @@ class MWBreakoutAlertEngine:
         self.alerts: List[MWBreakoutAlert] = []
         self.seen_event_keys: Set[str] = set()
         self._persist_lock = threading.Lock()
+        self._pending_db_retry_queue: List[MWBreakoutAlert] = []
         self._load_from_storage()
 
     def _load_from_storage(self):
@@ -132,92 +133,126 @@ class MWBreakoutAlertEngine:
     # Synchronous Database Operations (via sqlite3 for zero-overhead local sync)
     # ----------------------------------------------------------------------
 
-    def _persist_alert_to_db_sync(self, alert: MWBreakoutAlert) -> str:
+    def _flush_pending_db_retries(self) -> List[MWBreakoutAlert]:
+        """Flushes and retries any unpersisted alerts. Returns newly persisted alerts."""
+        if not self._pending_db_retry_queue:
+            return []
+        persisted: List[MWBreakoutAlert] = []
+        still_pending: List[MWBreakoutAlert] = []
+        for alert in list(self._pending_db_retry_queue):
+            action = self._persist_alert_to_db_sync(alert, allow_queue=False)
+            if action == "INSERTED":
+                self.alerts.insert(0, alert)
+                persisted.append(alert)
+                dedupe_key = f"{alert.symbol}_{alert.timeframe}_{alert.pattern_id}_{alert.breakout_candle_timestamp}"
+                self.seen_event_keys.add(dedupe_key)
+            elif action == "SKIPPED":
+                pass
+            else:
+                still_pending.append(alert)
+        self._pending_db_retry_queue = still_pending
+        return persisted
+
+    def _persist_alert_to_db_sync(self, alert: MWBreakoutAlert, allow_queue: bool = True) -> str:
         """
-        Safely ingests an alert into SQLite synchronously:
+        Safely ingests an alert into SQLite synchronously with exponential backoff:
         1. Not in DB -> INSERT, returns 'INSERTED'
         2. In DB & identical / already broken out -> SKIP, returns 'SKIPPED'
         3. In DB & conflicts -> logs conflict, returns 'CONFLICT'
+        On transient database lock/error, retries up to 3 times before queuing in _pending_db_retry_queue.
         """
+        import time
+        retries = 3
+        backoffs = [0.1, 0.25, 0.5]
+        last_err = None
+
         with self._persist_lock:
-            try:
-                import sqlite3
-                db_path = get_database_path()
-                if not db_path.exists():
-                    return "SKIPPED"
-                with get_sync_sqlite_connection(db_path, timeout=15.0) as conn:
-                    cursor = conn.cursor()
-
-                    # 1. Structural pattern check: Has this exact structural pattern already broken out in the DB?
-                    cursor.execute(
-                        """
-                        SELECT alert_id, breakout_candle_timestamp, status
-                        FROM mw_breakout_alerts
-                        WHERE symbol = ? AND timeframe = ? AND pattern_type = ?
-                          AND (pattern_id = ? OR alert_id = ? OR (s1_timestamp = ? AND neckline_timestamp = ?))
-                        ORDER BY breakout_candle_timestamp ASC
-                        LIMIT 1
-                        """,
-                        (alert.symbol, alert.timeframe, alert.pattern_type, alert.pattern_id, alert.alert_id, alert.s1_timestamp, alert.neckline_timestamp)
-                    )
-                    row = cursor.fetchone()
-                    if row:
+            for attempt in range(retries):
+                try:
+                    import sqlite3
+                    db_path = get_database_path()
+                    if not db_path.exists():
                         return "SKIPPED"
+                    with get_sync_sqlite_connection(db_path, timeout=15.0) as conn:
+                        cursor = conn.cursor()
 
-                    # 2. Existing physical breakout identity check: (symbol, timeframe, pattern_type, breakout_candle_timestamp)
-                    cursor.execute(
-                        """
-                        SELECT alert_id, s1_price, s2_price, neckline_price, pattern_height,
-                               measured_target, target_2, invalidation_level, quality_score, status
-                        FROM mw_breakout_alerts
-                        WHERE symbol = ? AND timeframe = ? AND pattern_type = ? AND breakout_candle_timestamp = ?
-                        LIMIT 1
-                        """,
-                        (alert.symbol, alert.timeframe, alert.pattern_type, alert.breakout_candle_timestamp)
-                    )
-                    row = cursor.fetchone()
-                    if row:
-                        ex_id, s1, s2, neck, ph, t1, t2, inval, q, st = row
-                        diffs = {}
-                        if abs(alert.s1_price - float(s1)) > 1e-4:
-                            diffs["s1_price"] = (alert.s1_price, s1)
-                        if abs(alert.s2_price - float(s2)) > 1e-4:
-                            diffs["s2_price"] = (alert.s2_price, s2)
-                        if abs(alert.neckline_price - float(neck)) > 1e-4:
-                            diffs["neckline_price"] = (alert.neckline_price, neck)
-                        if diffs:
-                            logger.warning(
-                                f"[MWAlertEngine] Conflict for physical breakout ({alert.symbol}, {alert.timeframe}, "
-                                f"{alert.pattern_type}, {alert.breakout_candle_timestamp}): {diffs}"
-                            )
-                            return "CONFLICT"
-                        return "SKIPPED"
-
-                    # 3. Insert new alert into DB
-                    d = alert.model_dump()
-                    cols = list(d.keys())
-                    placeholders = ", ".join(["?"] * len(cols))
-                    col_names = ", ".join(cols)
-                    vals = [
-                        json.dumps(d[c]) if isinstance(d[c], dict) else (
-                            1 if d[c] is True else (0 if d[c] is False else d[c])
-                        )
-                        for c in cols
-                    ]
-                    try:
+                        # 1. Structural pattern check: Has this exact structural pattern already broken out in the DB?
                         cursor.execute(
-                            f"INSERT INTO mw_breakout_alerts ({col_names}) VALUES ({placeholders})",
-                            vals
+                            """
+                            SELECT alert_id, breakout_candle_timestamp, status
+                            FROM mw_breakout_alerts
+                            WHERE symbol = ? AND timeframe = ? AND pattern_type = ?
+                              AND (pattern_id = ? OR alert_id = ? OR (s1_timestamp = ? AND neckline_timestamp = ?))
+                            ORDER BY breakout_candle_timestamp ASC
+                            LIMIT 1
+                            """,
+                            (alert.symbol, alert.timeframe, alert.pattern_type, alert.pattern_id, alert.alert_id, alert.s1_timestamp, alert.neckline_timestamp)
                         )
-                        conn.commit()
-                        return "INSERTED"
-                    except sqlite3.IntegrityError as ie:
-                        # Database-level atomicity protection: concurrent insert of alert_id or physical identity
-                        logger.info(f"[MWAlertEngine] Concurrent structural duplicate prevented by database constraint: {ie}")
-                        return "SKIPPED"
-            except Exception as e:
-                logger.warning(f"[MWAlertEngine] Error persisting alert to db: {e}")
-                return "ERROR"
+                        row = cursor.fetchone()
+                        if row:
+                            return "SKIPPED"
+
+                        # 2. Existing physical breakout identity check: (symbol, timeframe, pattern_type, breakout_candle_timestamp)
+                        cursor.execute(
+                            """
+                            SELECT alert_id, s1_price, s2_price, neckline_price, pattern_height,
+                                   measured_target, target_2, invalidation_level, quality_score, status
+                            FROM mw_breakout_alerts
+                            WHERE symbol = ? AND timeframe = ? AND pattern_type = ? AND breakout_candle_timestamp = ?
+                            LIMIT 1
+                            """,
+                            (alert.symbol, alert.timeframe, alert.pattern_type, alert.breakout_candle_timestamp)
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            ex_id, s1, s2, neck, ph, t1, t2, inval, q, st = row
+                            diffs = {}
+                            if abs(alert.s1_price - float(s1)) > 1e-4:
+                                diffs["s1_price"] = (alert.s1_price, s1)
+                            if abs(alert.s2_price - float(s2)) > 1e-4:
+                                diffs["s2_price"] = (alert.s2_price, s2)
+                            if abs(alert.neckline_price - float(neck)) > 1e-4:
+                                diffs["neckline_price"] = (alert.neckline_price, neck)
+                            if diffs:
+                                logger.warning(
+                                    f"[MWAlertEngine] Conflict for physical breakout ({alert.symbol}, {alert.timeframe}, "
+                                    f"{alert.pattern_type}, {alert.breakout_candle_timestamp}): {diffs}"
+                                )
+                                return "CONFLICT"
+                            return "SKIPPED"
+
+                        # 3. Insert new alert into DB
+                        d = alert.model_dump()
+                        cols = list(d.keys())
+                        placeholders = ", ".join(["?"] * len(cols))
+                        col_names = ", ".join(cols)
+                        vals = [
+                            json.dumps(d[c]) if isinstance(d[c], dict) else (
+                                1 if d[c] is True else (0 if d[c] is False else d[c])
+                            )
+                            for c in cols
+                        ]
+                        try:
+                            cursor.execute(
+                                f"INSERT INTO mw_breakout_alerts ({col_names}) VALUES ({placeholders})",
+                                vals
+                            )
+                            conn.commit()
+                            return "INSERTED"
+                        except sqlite3.IntegrityError as ie:
+                            # Database-level atomicity protection: duplicate structural identity or alert_id
+                            logger.info(f"[MWAlertEngine] Concurrent structural duplicate prevented by database constraint: {ie}")
+                            return "SKIPPED"
+                except Exception as e:
+                    last_err = e
+                    if attempt < retries - 1:
+                        time.sleep(backoffs[attempt])
+                        continue
+
+            logger.error(f"[MWAlertEngine] Error persisting alert {alert.alert_id} to DB after {retries} attempts: {last_err}")
+            if allow_queue and not any(a.alert_id == alert.alert_id for a in self._pending_db_retry_queue):
+                self._pending_db_retry_queue.append(alert)
+            return "ERROR"
 
     def _update_alert_status_db_sync(self, alert_id: str, new_status: str, outcome_ts: Optional[str] = None) -> bool:
         """
@@ -577,13 +612,14 @@ class MWBreakoutAlertEngine:
                     read=False
                 )
                 self._evaluate_single_alert_status(new_alert, candles)
-                self._persist_alert_to_db_sync(new_alert)
-                self.alerts.insert(0, new_alert)
-                dedupe_key = f"{symbol}_{timeframe}_{pat.pattern_id}_{breakout_ts}"
-                self.seen_event_keys.add(dedupe_key)
+                action = self._persist_alert_to_db_sync(new_alert)
+                if action in ["INSERTED", "SKIPPED"]:
+                    self.alerts.insert(0, new_alert)
+                    dedupe_key = f"{symbol}_{timeframe}_{pat.pattern_id}_{breakout_ts}"
+                    self.seen_event_keys.add(dedupe_key)
 
-                if active_pattern and pat.pattern_id == active_pattern.pattern_id:
-                    target_active_alert = new_alert
+                    if active_pattern and pat.pattern_id == active_pattern.pattern_id:
+                        target_active_alert = new_alert
 
         if target_active_alert and target_active_alert in self.alerts:
             self.alerts.remove(target_active_alert)
@@ -617,8 +653,9 @@ class MWBreakoutAlertEngine:
         # 1. Update existing active alerts
         updated_alerts = self._update_existing_alert_statuses(synthesis, mtf_candles=mtf_candles)
 
-        # 2. Check for newly confirmed W/M breakouts
-        new_alerts: List[MWBreakoutAlert] = []
+        # 2. Check for newly confirmed W/M breakouts and flush pending retries
+        flushed_new = self._flush_pending_db_retries()
+        new_alerts: List[MWBreakoutAlert] = list(flushed_new) if not is_catchup else []
         clean_sym = synthesis.symbol.replace(' ', '_').replace('/', '_')
 
         for tf_name, tf_data in synthesis.timeframes.items():
