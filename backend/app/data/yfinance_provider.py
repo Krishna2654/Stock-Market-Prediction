@@ -110,11 +110,21 @@ class YahooFinanceProvider(MarketDataProvider):
         end: Optional[datetime] = None
     ) -> List[Candle]:
         clean_ticker = (ticker or "").strip().replace("/", "-")
+        # Smart period selection based on requested limit
+        default_period = "60d"
+        if timeframe in ["1H", "4H"]:
+            if limit <= 300:
+                default_period = "60d" if timeframe == "1H" else "180d"
+            elif limit <= 500:
+                default_period = "90d" if timeframe == "1H" else "250d"
+            else:
+                default_period = "730d"
+
         tf_config = {
             "5M": {"interval": "5m", "period": "60d"},
             "15M": {"interval": "15m", "period": "60d"},
-            "1H": {"interval": "60m", "period": "730d"},
-            "4H": {"interval": "60m", "period": "730d"}
+            "1H": {"interval": "60m", "period": default_period},
+            "4H": {"interval": "60m", "period": default_period}
         }
         
         cfg = tf_config.get(timeframe, {"interval": "60m", "period": "60d"})
@@ -129,18 +139,17 @@ class YahooFinanceProvider(MarketDataProvider):
             if df is None or df.empty:
                 return []
             
-            raw_candles: List[Candle] = []
-            for ts, row in df.iterrows():
-                ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
-                c = Candle(
-                    timestamp=ts_str,
+            raw_candles: List[Candle] = [
+                Candle(
+                    timestamp=ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
                     open=round(float(row["Open"]), 2),
                     high=round(float(row["High"]), 2),
                     low=round(float(row["Low"]), 2),
                     close=round(float(row["Close"]), 2),
                     volume=float(row["Volume"]) if "Volume" in row and not pd.isna(row["Volume"]) else 0.0
                 )
-                raw_candles.append(c)
+                for ts, row in zip(df.index, df.to_dict(orient="records"))
+            ]
 
             # Aggregate with session awareness
             aggregated = SessionAwareCandleBuilder.aggregate_candles(raw_candles, timeframe, clean_ticker)
@@ -190,10 +199,10 @@ class YahooFinanceProvider(MarketDataProvider):
                 try:
                     return await asyncio.wait_for(
                         asyncio.to_thread(self._sync_fetch, clean_ticker, timeframe, limit, start, end),
-                        timeout=12.0
+                        timeout=45.0
                     )
                 except asyncio.TimeoutError:
-                    logger.warning(f"[YahooFinanceProvider] Range fetch timed out after 12s for {clean_ticker} ({timeframe})")
+                    logger.warning(f"[YahooFinanceProvider] Range fetch timed out after 45s for {clean_ticker} ({timeframe})")
                     return []
 
         cache_key = self._get_cache_key(clean_ticker, timeframe)
@@ -219,10 +228,10 @@ class YahooFinanceProvider(MarketDataProvider):
                     try:
                         candles = await asyncio.wait_for(
                             asyncio.to_thread(self._sync_fetch, clean_ticker, timeframe, limit, None, None),
-                            timeout=12.0
+                            timeout=45.0
                         )
                     except asyncio.TimeoutError:
-                        logger.warning(f"[YahooFinanceProvider] Fetch timed out after 12s for {clean_ticker} ({timeframe})")
+                        logger.warning(f"[YahooFinanceProvider] Fetch timed out after 45s for {clean_ticker} ({timeframe})")
                         candles = []
                 if candles:
                     self._cache[cache_key] = {

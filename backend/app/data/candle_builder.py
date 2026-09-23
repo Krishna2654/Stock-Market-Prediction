@@ -128,23 +128,26 @@ class SessionAwareCandleBuilder:
 
         is_crypto = cls.is_crypto(ticker)
 
-        # Convert to pandas DataFrame for session-aware resampling
-        records = [{
-            "timestamp": pd.to_datetime(c.timestamp),
-            "Open": c.open,
-            "High": c.high,
-            "Low": c.low,
-            "Close": c.close,
-            "Volume": c.volume
-        } for c in cleaned]
+        # Convert to pandas DataFrame for session-aware resampling using vectorized columns
+        records = {
+            "timestamp": [c.timestamp for c in cleaned],
+            "Open": [c.open for c in cleaned],
+            "High": [c.high for c in cleaned],
+            "Low": [c.low for c in cleaned],
+            "Close": [c.close for c in cleaned],
+            "Volume": [c.volume for c in cleaned]
+        }
 
         df = pd.DataFrame(records)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
         df.set_index("timestamp", inplace=True)
         if df.index.tz is None:
             df.index = df.index.tz_localize("UTC")
 
         if not is_crypto:
             df.index = df.index.tz_convert(KOLKATA_TZ)
+        else:
+            df.index = df.index.tz_convert(UTC_TZ)
 
         if target_timeframe == "1H":
             if is_crypto:
@@ -171,14 +174,21 @@ class SessionAwareCandleBuilder:
             return cleaned
 
         result_candles: List[Candle] = []
-        for ts, row in resampled.iterrows():
+        for ts, o, h, l, cl, v in zip(
+            resampled.index,
+            resampled["Open"],
+            resampled["High"],
+            resampled["Low"],
+            resampled["Close"],
+            resampled["Volume"]
+        ):
             c = Candle(
                 timestamp=ts.isoformat(),
-                open=round(float(row["Open"]), 2),
-                high=round(float(row["High"]), 2),
-                low=round(float(row["Low"]), 2),
-                close=round(float(row["Close"]), 2),
-                volume=round(float(row["Volume"]), 2)
+                open=round(float(o), 2),
+                high=round(float(h), 2),
+                low=round(float(l), 2),
+                close=round(float(cl), 2),
+                volume=round(float(v), 2)
             )
             if CandleValidator.validate_candle(c):
                 result_candles.append(c)

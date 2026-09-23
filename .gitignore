@@ -21,4 +21,6 @@ Thumbs.db
 *.db
 *.db-shm
 *.db-wal
-backend/data/backups/
+backend/data/backups/
+backend/data/market_chart_cache.*
+backend/data/market_synthesis_cache.json
