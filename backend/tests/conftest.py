@@ -24,6 +24,21 @@ def isolate_global_mw_storage(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_global_chart_cache(tmp_path, monkeypatch):
+    """
+    Globally isolates WorkerChartCache._CACHE_FILE to a temporary location
+    and clears worker_chart_cache in-memory state before and after each test,
+    ensuring tests never pollute backend/data/market_chart_cache.json or cross-contaminate.
+    """
+    temp_cache_file = tmp_path / "test_market_chart_cache.json"
+    monkeypatch.setattr("app.analysis.chart_cache.WorkerChartCache._CACHE_FILE", temp_cache_file)
+    from app.analysis.chart_cache import worker_chart_cache
+    worker_chart_cache.clear()
+    yield
+    worker_chart_cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def isolate_global_test_db(tmp_path, monkeypatch, request):
     """
     Globally isolates the SQLite database to a temporary location for test runs,

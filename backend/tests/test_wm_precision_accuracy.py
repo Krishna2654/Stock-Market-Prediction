@@ -848,23 +848,25 @@ def test_regression_c_nifty_fast_5m_w_reversal():
         Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=24050, high=24060, low=24040, close=24050, volume=1000)
         for i in range(20)
     ]
-    # L1 at index 4 (24010), Neckline candle at index 7 (high 24065), L2 candle at index 9 (low 24015), Breakout at index 11 (close 24070)
+    # L1 at index 4 (24010), Neckline candle at index 7 (high 24065), L2 candle at index 9 (low 24015), Breakout at index 11 (close 24075)
     candles[4] = Candle(timestamp="2026-08-25T10:20:00Z", open=24030, high=24035, low=24010, close=24015, volume=1000)
     candles[7] = Candle(timestamp="2026-08-25T10:35:00Z", open=24045, high=24065, low=24040, close=24060, volume=1000)
     candles[9] = Candle(timestamp="2026-08-25T10:45:00Z", open=24040, high=24045, low=24015, close=24020, volume=1000)
-    candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=24055, high=24075, low=24050, close=24070, volume=3000)
+    candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=24055, high=24080, low=24050, close=24075, volume=3000)
     
-    l1 = SwingPoint(index=4, price=24010.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
     prior_h = SwingPoint(index=1, price=24100.0, timestamp="2026-08-25T10:05:00Z", is_high=True, type="HH", strength=2.0, confirmed=True)
+    l1 = SwingPoint(index=4, price=24010.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
+    neckline = SwingPoint(index=7, price=24065.0, timestamp="2026-08-25T10:35:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)
+    l2 = SwingPoint(index=9, price=24015.0, timestamp="2026-08-25T10:45:00Z", is_high=False, type="HL", strength=2.0, confirmed=True)
     
     events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
-        candles=candles, swings=[prior_h, l1], trendlines=[], df_indicators=None,
+        candles=candles, swings=[prior_h, l1, neckline, l2], trendlines=[], df_indicators=None,
         symbol="NIFTY 50", timeframe="5M", atr_val=atr
     )
     assert len(confirmed) >= 1, "Fast 5M W reversal should confirm on completed candle close"
     w_fast = confirmed[0]
     assert w_fast.pattern_type == "W"
-    assert w_fast.breakout_close == 24070.0
+    assert w_fast.breakout_close == 24075.0
     assert w_fast.breakout_candle_index == 11
     assert w_fast.breakout_candle_time == "2026-08-25T10:55:00Z"
 
@@ -880,11 +882,13 @@ def test_regression_d_hdfcbank_fast_5m_w_reversal():
     candles[9] = Candle(timestamp="2026-08-25T10:45:00Z", open=699, high=700, low=696, close=697, volume=1000)
     candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=700, high=704, low=699, close=703, volume=3000)
     
-    l1 = SwingPoint(index=4, price=695.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
     prior_h = SwingPoint(index=1, price=710.0, timestamp="2026-08-25T10:05:00Z", is_high=True, type="HH", strength=2.0, confirmed=True)
+    l1 = SwingPoint(index=4, price=695.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
+    neckline = SwingPoint(index=7, price=702.0, timestamp="2026-08-25T10:35:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)
+    l2 = SwingPoint(index=9, price=696.0, timestamp="2026-08-25T10:45:00Z", is_high=False, type="HL", strength=2.0, confirmed=True)
     
     events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
-        candles=candles, swings=[prior_h, l1], trendlines=[], df_indicators=None,
+        candles=candles, swings=[prior_h, l1, neckline, l2], trendlines=[], df_indicators=None,
         symbol="HDFCBANK", timeframe="5M", atr_val=atr
     )
     assert len(confirmed) >= 1

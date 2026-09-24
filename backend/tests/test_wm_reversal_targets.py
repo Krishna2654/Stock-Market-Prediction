@@ -359,13 +359,15 @@ def test_fast_5m_w_uses_structural_target():
     candles[4] = Candle(timestamp="2026-08-25T10:20:00Z", open=24030, high=24035, low=24010, close=24015, volume=1000)
     candles[7] = Candle(timestamp="2026-08-25T10:35:00Z", open=24045, high=24065, low=24040, close=24060, volume=1000)
     candles[9] = Candle(timestamp="2026-08-25T10:45:00Z", open=24040, high=24045, low=24015, close=24020, volume=1000)
-    candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=24055, high=24075, low=24050, close=24070, volume=3000)
+    candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=24055, high=24080, low=24050, close=24075, volume=3000)
 
-    l1 = SwingPoint(index=4, price=24010.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
     prior_h = SwingPoint(index=1, price=24100.0, timestamp="2026-08-25T10:05:00Z", is_high=True, type="HH", strength=2.0, confirmed=True)
+    l1 = SwingPoint(index=4, price=24010.0, timestamp="2026-08-25T10:20:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
+    neckline = SwingPoint(index=7, price=24065.0, timestamp="2026-08-25T10:35:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)
+    l2 = SwingPoint(index=9, price=24015.0, timestamp="2026-08-25T10:45:00Z", is_high=False, type="HL", strength=2.0, confirmed=True)
 
     events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
-        candles=candles, swings=[prior_h, l1], trendlines=[], df_indicators=None,
+        candles=candles, swings=[prior_h, l1, neckline, l2], trendlines=[], df_indicators=None,
         symbol="NIFTY 50", timeframe="5M", atr_val=atr
     )
     assert len(confirmed) >= 1
@@ -385,17 +387,19 @@ def test_fast_5m_m_uses_structural_target():
         Candle(timestamp=f"2026-08-25T10:{i*5:02d}:00Z", open=24050, high=24060, low=24040, close=24050, volume=1000)
         for i in range(20)
     ]
-    # H1 at index 4 (high 24090), Neckline candle at index 7 (low 24035), H2 candle at index 9 (high 24085), Breakdown at index 11 (close 24030)
+    # H1 at index 4 (high 24090), Neckline candle at index 7 (low 24035), H2 candle at index 9 (high 24085), Breakdown at index 11 (close 24025)
     candles[4] = Candle(timestamp="2026-08-25T10:20:00Z", open=24070, high=24090, low=24065, close=24085, volume=1000)
     candles[7] = Candle(timestamp="2026-08-25T10:35:00Z", open=24055, high=24060, low=24035, close=24040, volume=1000)
     candles[9] = Candle(timestamp="2026-08-25T10:45:00Z", open=24060, high=24085, low=24055, close=24080, volume=1000)
-    candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=24045, high=24050, low=24025, close=24030, volume=3000)
+    candles[11] = Candle(timestamp="2026-08-25T10:55:00Z", open=24045, high=24050, low=24020, close=24025, volume=3000)
 
-    h1 = SwingPoint(index=4, price=24090.0, timestamp="2026-08-25T10:20:00Z", is_high=True, type="HH", strength=2.0, confirmed=True)
     prior_l = SwingPoint(index=1, price=24000.0, timestamp="2026-08-25T10:05:00Z", is_high=False, type="LL", strength=2.0, confirmed=True)
+    h1 = SwingPoint(index=4, price=24090.0, timestamp="2026-08-25T10:20:00Z", is_high=True, type="HH", strength=2.0, confirmed=True)
+    neckline = SwingPoint(index=7, price=24035.0, timestamp="2026-08-25T10:35:00Z", is_high=False, type="HL", strength=2.0, confirmed=True)
+    h2 = SwingPoint(index=9, price=24085.0, timestamp="2026-08-25T10:45:00Z", is_high=True, type="LH", strength=2.0, confirmed=True)
 
     events, confirmed, active, debug_cands = PrecisionBreakoutDetector.detect_wm_patterns(
-        candles=candles, swings=[prior_l, h1], trendlines=[], df_indicators=None,
+        candles=candles, swings=[prior_l, h1, neckline, h2], trendlines=[], df_indicators=None,
         symbol="NIFTY 50", timeframe="5M", atr_val=atr
     )
     assert len(confirmed) >= 1
