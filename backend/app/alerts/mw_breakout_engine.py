@@ -483,8 +483,16 @@ class MWBreakoutAlertEngine:
         target_active_alert: Optional[MWBreakoutAlert] = None
 
         for pat in patterns_to_sync:
+            # 1. A W/M alert may ONLY be persisted as a breakout/breakdown alert when an actual completed breakout candle exists
+            if not pat.breakout_candle_time:
+                continue
+
+            # 2. S2/Low2/High2 is NEVER itself a breakout confirmation (S2 timestamp is never a breakout timestamp)
+            if pat.s2_time and pat.breakout_candle_time == pat.s2_time:
+                continue
+
             is_w = pat.pattern_type == "W"
-            breakout_ts = pat.breakout_candle_time or pat.s2_time or now_str
+            breakout_ts = pat.breakout_candle_time
             clean_pat_id = pat.pattern_id.replace(" ", "_").replace("/", "_").replace(":", "-").replace(".", "-")
             stable_alert_id = f"mw_{clean_pat_id}"
 
@@ -503,22 +511,34 @@ class MWBreakoutAlertEngine:
                 pat.prev_swing_sl_price or (min(pat.s1_price, pat.s2_price) if is_w else max(pat.s1_price, pat.s2_price))
             )
 
-            b_open = pat.neckline_price
-            b_high = pat.breakout_close or pat.neckline_price
-            b_low = pat.breakout_close or pat.neckline_price
-            b_close = pat.breakout_close or pat.neckline_price
-            if pat.breakout_candle_index is not None and pat.breakout_candle_index < len(candles):
+            # 3. Resolve actual breakout candle OHLC strictly from the breakout candle (never candles[-1])
+            bc: Optional[Candle] = None
+            if pat.breakout_candle_index is not None and 0 <= pat.breakout_candle_index < len(candles):
                 bc = candles[pat.breakout_candle_index]
-                b_open = bc.open
-                b_high = bc.high
-                b_low = bc.low
-                b_close = bc.close
             elif candles:
-                bc = candles[-1]
+                bc = next((c for c in candles if c.timestamp == pat.breakout_candle_time), None)
+
+            if bc is not None:
                 b_open = bc.open
                 b_high = bc.high
                 b_low = bc.low
                 b_close = bc.close
+            elif pat.breakout_close is not None:
+                b_close = pat.breakout_close
+                b_open = getattr(pat, "breakout_open", None) or pat.neckline_price
+                b_high = getattr(pat, "breakout_high", None) or b_close
+                b_low = getattr(pat, "breakout_low", None) or pat.neckline_price
+            else:
+                # No valid breakout candle or breakout close available
+                continue
+
+            # 4. Strict breakout close validation beyond neckline: W must close > neckline, M must close < neckline
+            if is_w:
+                if b_close <= pat.neckline_price:
+                    continue
+            else:
+                if b_close >= pat.neckline_price:
+                    continue
 
             existing = next(
                 (
@@ -678,6 +698,10 @@ class MWBreakoutAlertEngine:
                     if not pat.breakout_candle_time:
                         continue
 
+                    # S2/Low2/High2 is NEVER itself a breakout confirmation
+                    if pat.s2_time and pat.breakout_candle_time == pat.s2_time:
+                        continue
+
                     clean_pat_id = (pat.pattern_id or f"{clean_sym}_{tf_name}_{pat.pattern_type}_{pat.s1_time}_{pat.neckline_time}").replace(':', '-').replace('.', '-').replace('/', '_').replace(' ', '_')
                     stable_alert_id = f"mw_{clean_pat_id}"
                     dedupe_key = f"{synthesis.symbol}_{tf_name}_{pat.pattern_type}_{pat.pattern_id or clean_pat_id}"
@@ -695,6 +719,13 @@ class MWBreakoutAlertEngine:
                     b_high = matching_event.breakout_candle_high if matching_event and matching_event.breakout_candle_high else (pat.breakout_close or pat.neckline_price)
                     b_low = matching_event.breakout_candle_low if matching_event and matching_event.breakout_candle_low else (pat.breakout_close or pat.neckline_price)
                     b_close = pat.breakout_close or (matching_event.break_price if matching_event else pat.neckline_price)
+
+                    # Strict breakout close validation beyond neckline
+                    if is_w and b_close <= pat.neckline_price:
+                        continue
+                    if not is_w and b_close >= pat.neckline_price:
+                        continue
+
                     b_vol = matching_event.volume_ratio if matching_event and matching_event.volume_ratio else 1.25
                     tl_price = matching_event.trendline_level if matching_event and matching_event.trendline_level else pat.neckline_price
                     ema_price = matching_event.ema20_level if matching_event and matching_event.ema20_level else pat.neckline_price
